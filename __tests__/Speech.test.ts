@@ -24,7 +24,7 @@ import {
   DEFAULT_VOICE,
 } from "../src/constants";
 
-// Mock the services to avoid network calls and expo-av dependencies
+// Mock the services to avoid network calls and expo-audio dependencies
 // Mock Synthesizer
 const mockSynthesizerSpeak = jest.fn().mockResolvedValue(undefined);
 const mockSynthesizerStop = jest.fn();
@@ -96,27 +96,17 @@ jest.mock("../src/core/connectionManager", () => ({
   })),
 }));
 
-// Mock expo-av Audio
-jest.mock("expo-av", () => ({
-  Audio: {
-    Sound: {
-      createAsync: jest.fn().mockResolvedValue({
-        sound: {
-          playAsync: jest.fn().mockResolvedValue(undefined),
-          unloadAsync: jest.fn().mockResolvedValue(undefined),
-          getStatusAsync: jest
-            .fn()
-            .mockResolvedValue({ isLoaded: true, isPlaying: false }),
-          setOnPlaybackStatusUpdate: jest.fn(),
-        },
-        status: {
-          /* mock AVPlaybackStatus */
-        },
-      }),
-    },
-    setAudioModeAsync: jest.fn().mockResolvedValue(undefined),
-    Recording: jest.fn(),
-  },
+// Mock expo-audio
+jest.mock("expo-audio", () => ({
+  createAudioPlayer: jest.fn().mockImplementation(() => ({
+    play: jest.fn(),
+    pause: jest.fn(),
+    seekTo: jest.fn(),
+    remove: jest.fn(),
+    replace: jest.fn(),
+    addListener: jest.fn().mockReturnValue({ remove: jest.fn() }),
+  })),
+  setAudioModeAsync: jest.fn().mockResolvedValue(undefined),
 }));
 
 describe("Main Speech API Implementation", () => {

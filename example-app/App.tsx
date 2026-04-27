@@ -17,7 +17,6 @@ import * as Speech from 'expo-edge-speech';
 import { configure } from 'expo-edge-speech';
 import type { EdgeSpeechVoice, SpeechAPIConfig } from '../src/types';
 import type { ReactNativeWebSocket } from '../src/rn-types';
-import { InterruptionModeAndroid, InterruptionModeIOS } from 'expo-av';
 
 export default function App() {
   // Voice management state
@@ -91,17 +90,10 @@ export default function App() {
       audio: {
         loadingTimeout: 6000,
         platformConfig: {
-          ios: { 
-            playsInSilentModeIOS: true,
-            staysActiveInBackground: false,
-            interruptionModeIOS: InterruptionModeIOS.DoNotMix
-          },
-          android: { 
-            shouldDuckAndroid: true,
-            staysActiveInBackground: false,
-            playThroughEarpieceAndroid: false,
-            interruptionModeAndroid: InterruptionModeAndroid.DoNotMix
-          }
+          playsInSilentMode: true,
+          shouldPlayInBackground: false,
+          shouldRouteThroughEarpiece: false,
+          interruptionMode: 'doNotMix',
         }
       }
     };

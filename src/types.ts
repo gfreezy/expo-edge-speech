@@ -3,8 +3,6 @@
  * Compatible with expo-speech API
  */
 
-import type { InterruptionModeAndroid, InterruptionModeIOS } from "expo-av";
-
 // ============================================================================
 // Enums
 // ============================================================================
@@ -428,28 +426,21 @@ export interface SSMLRequest {
 // ============================================================================
 
 /**
- * Platform-specific audio configuration for expo-av Audio.setAudioModeAsync()
- * Supports iOS and Android platforms only
+ * Audio session configuration passed to expo-audio's `setAudioModeAsync()`.
+ * Mirrors expo-audio's `AudioMode` shape — fields that don't apply to the
+ * current platform are ignored by the runtime.
  */
 export interface PlatformAudioConfig {
-  ios: {
-    /** Whether audio stays active in background - not available in Expo Go for iOS */
-    staysActiveInBackground?: boolean;
-    /** Whether audio plays when device is in silent mode - iOS only */
-    playsInSilentModeIOS?: boolean;
-    /** Audio interruption mode for iOS - required */
-    interruptionModeIOS: InterruptionModeIOS;
-  };
-  android: {
-    /** Whether audio stays active in background */
-    staysActiveInBackground?: boolean;
-    /** Whether TTS should lower other audio while playing - Android only */
-    shouldDuckAndroid?: boolean;
-    /** Whether audio plays through earpiece - Android only */
-    playThroughEarpieceAndroid?: boolean;
-    /** Audio interruption mode for Android - required */
-    interruptionModeAndroid: InterruptionModeAndroid;
-  };
+  /** iOS: allow playback while the ringer switch is silenced. */
+  playsInSilentMode?: boolean;
+  /** Cross-platform interruption behavior. */
+  interruptionMode?: "mixWithOthers" | "doNotMix" | "duckOthers";
+  /** Keep audio active when the app backgrounds (both platforms). */
+  shouldPlayInBackground?: boolean;
+  /** Android: route playback through the earpiece instead of speakers. */
+  shouldRouteThroughEarpiece?: boolean;
+  /** iOS: allow recording while audio is active (rarely needed for TTS). */
+  allowsRecording?: boolean;
 }
 
 /**

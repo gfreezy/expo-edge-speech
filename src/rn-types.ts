@@ -3,12 +3,12 @@
 // =============================================================================
 
 /**
- * React Native WebSocket interface based on actual RN v0.76.9 source code.
+ * React Native WebSocket interface based on RN v0.83.x source code.
  * React Native WebSocket differs from DOM WebSocket in several ways:
  * 1. Event objects have different shapes (no WebSocketMessageEvent, WebSocketCloseEvent etc.)
  * 2. Constructor accepts options parameter with headers
  * 3. Event handlers receive plain objects instead of DOM event instances
- * https://github.com/facebook/react-native/blob/v0.76.9/packages/react-native/Libraries/WebSocket/WebSocket.js
+ * https://github.com/facebook/react-native/blob/v0.83.6/packages/react-native/Libraries/WebSocket/WebSocket.js
  */
 export interface ReactNativeWebSocket extends EventTarget {
   readonly readyState: number;

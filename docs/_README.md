@@ -51,9 +51,9 @@ Welcome to the expo-edge-speech documentation! This guide will help you get star
 
 ## 📱 Platform Support
 
-- **iOS:** 15.1+ (Expo SDK 52+)
-- **Android:** API 24+ (Expo SDK 52+)
-- **React Native:** 0.76.9+
+- **iOS:** 15.1+ (Expo SDK 55+)
+- **Android:** API 24+ (Expo SDK 55+)
+- **React Native:** 0.83+
 
 ## 🔧 Configuration
 
@@ -90,7 +90,7 @@ For detailed troubleshooting, see the respective documentation files.
 ## 🔗 Related Links
 
 - [expo-speech API](https://docs.expo.dev/versions/latest/sdk/speech/) - Original Expo speech API
-- [expo-av](https://docs.expo.dev/versions/latest/sdk/av/) - Audio/video functionality
+- [expo-audio](https://docs.expo.dev/versions/latest/sdk/audio/) - Audio playback functionality
 - [Microsoft Edge TTS](https://azure.microsoft.com/services/cognitive-services/text-to-speech/) - Voice synthesis service
 
 ## 📄 License

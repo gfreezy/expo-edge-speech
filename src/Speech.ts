@@ -81,8 +81,8 @@ class SpeechAPI {
    *   audio: {
    *     loadingTimeout: 6000,
    *     platformConfig: {
-   *       ios: { playsInSilentModeIOS: true },
-   *       android: { shouldDuckAndroid: true }
+   *       playsInSilentMode: true,
+   *       interruptionMode: 'doNotMix'
    *     }
    *   }
    * });
@@ -534,8 +534,8 @@ class SpeechAPI {
  *   audio: {
  *     loadingTimeout: 6000,
  *     platformConfig: {
- *       ios: { playsInSilentModeIOS: true },
- *       android: { shouldDuckAndroid: true }
+ *       playsInSilentMode: true,
+ *       interruptionMode: 'doNotMix'
  *     }
  *   }
  * });

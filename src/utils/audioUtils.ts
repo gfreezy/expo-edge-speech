@@ -655,17 +655,23 @@ export function mergeStorageServiceAudioChunks(
 }
 
 // ============================================================================
-// expo-av Compatibility Functions
+// expo-audio Compatibility Functions
 // ============================================================================
+//
+// These helpers were originally written against expo-av's Sound.createAsync
+// data URI contract. expo-audio's createAudioPlayer accepts the same
+// `data:audio/mpeg;base64,...` URI shape, so they continue to work unchanged.
+// The `ExpoAV*` identifiers are kept for internal stability — they are not
+// exported from src/index.ts.
 
 /**
- * expo-av compatible audio data interface
- * Based on expo-av documentation for Sound.createAsync requirements
+ * Audio data shape consumed by expo-audio's createAudioPlayer (a string URI
+ * source). The base64 data URI format is identical to what expo-av required.
  */
 export interface ExpoAVAudioData {
-  /** Data URI for expo-av Sound.createAsync */
+  /** Data URI consumed by createAudioPlayer */
   uri: string;
-  /** Audio metadata for expo-av */
+  /** Audio metadata */
   metadata: {
     format: string;
     duration?: number;
@@ -675,11 +681,11 @@ export interface ExpoAVAudioData {
 }
 
 /**
- * Generates expo-av compatible data URI from MP3 audio data
- * Creates base64 data URI for expo-av Sound.createAsync usage
+ * Generates a base64 MP3 data URI from raw MP3 bytes.
+ * The returned URI is compatible with expo-audio's createAudioPlayer.
  *
  * @param mp3Data - MP3 audio data from Edge TTS
- * @returns Data URI string for expo-av compatibility
+ * @returns Data URI string
  */
 export function generateExpoAVDataURI(mp3Data: ArrayBuffer): string {
   // Convert ArrayBuffer to base64 for data URI
@@ -687,17 +693,16 @@ export function generateExpoAVDataURI(mp3Data: ArrayBuffer): string {
   const binaryString = String.fromCharCode.apply(null, Array.from(uint8Array));
   const base64String = btoa(binaryString);
 
-  // Create data URI with MP3 MIME type for expo-av
+  // Create data URI with MP3 MIME type
   return `data:audio/mpeg;base64,${base64String}`;
 }
 
 /**
- * Creates expo-av compatible audio data from Edge TTS MP3
- * Prepares audio data for use with expo-av Sound.createAsync
+ * Builds an audio data record (URI + metadata) from raw Edge TTS MP3 bytes.
  *
  * @param mp3Data - MP3 audio data from Edge TTS
  * @param metadata - Optional audio metadata
- * @returns expo-av compatible audio data
+ * @returns Audio data record consumable by expo-audio
  */
 export function createExpoAVAudioData(
   mp3Data: ArrayBuffer,
@@ -725,11 +730,10 @@ export function createExpoAVAudioData(
 }
 
 /**
- * Validates expo-av audio data compatibility
- * Ensures audio data meets expo-av Sound.createAsync requirements
+ * Validates audio data compatibility with expo-audio's createAudioPlayer.
  *
- * @param audioData - expo-av audio data to validate
- * @returns True if compatible with expo-av
+ * @param audioData - audio data record to validate
+ * @returns True if the data URI/metadata can drive createAudioPlayer
  */
 export function validateExpoAVCompatibility(
   audioData: ExpoAVAudioData,
@@ -1092,7 +1096,7 @@ export function createNetworkServiceEdgeCaseHandler(): NetworkServiceEdgeCaseHan
  *
  * @param chunks - Raw audio chunks from Network Service
  * @param connectionId - Connection ID for Storage Service coordination
- * @returns Processed audio data ready for expo-av playback
+ * @returns Processed audio data ready for expo-audio playback
  */
 export function processNetworkServiceAudioPipeline(
   chunks: ArrayBuffer[],
@@ -1136,7 +1140,7 @@ export function processNetworkServiceAudioPipeline(
       return null;
     }
 
-    // Step 5: Create expo-av compatible data
+    // Step 5: Create expo-audio compatible data
     const expoAVData = createExpoAVAudioData(combinedAudio);
     if (!validateExpoAVCompatibility(expoAVData)) {
       return null;

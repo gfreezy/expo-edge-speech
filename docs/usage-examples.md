@@ -8,7 +8,7 @@ description: Comprehensive examples and patterns for integrating text-to-speech 
 
 Comprehensive examples and patterns for integrating text-to-speech functionality in your Expo apps using expo-edge-speech.
 
-> **Prerequisites**: This guide assumes you have expo-edge-speech installed and configured in an Expo SDK 52+ project. See the [API Reference](./api-reference.md) for installation instructions.
+> **Prerequisites**: This guide assumes you have expo-edge-speech installed and configured in an Expo SDK 55+ project. See the [API Reference](./api-reference.md) for installation instructions.
 
 ## Quick Start Examples
 
@@ -506,7 +506,6 @@ For production applications, use a configuration optimized for reliability and p
 
 ```typescript
 import { configure } from 'expo-edge-speech';
-import { InterruptionModeIOS, InterruptionModeAndroid } from 'expo-av';
 
 configure({
   network: {
@@ -525,16 +524,10 @@ configure({
   audio: {
     loadingTimeout: 6000,
     platformConfig: {
-      ios: {
-        playsInSilentModeIOS: true,
-        staysActiveInBackground: false,
-        interruptionModeIOS: InterruptionModeIOS.DoNotMix
-      },
-      android: {
-        shouldDuckAndroid: true,
-        staysActiveInBackground: false,
-        interruptionModeAndroid: InterruptionModeAndroid.DoNotMix
-      }
+      playsInSilentMode: true,
+      interruptionMode: 'doNotMix',
+      shouldPlayInBackground: false,
+      shouldRouteThroughEarpiece: false
     }
   },
   storage: {
@@ -1475,7 +1468,7 @@ function SpeechControls() {
 4. Monitor memory usage with large text content
 
 ### Platform-Specific Issues
-1. **iOS**: Check `playsInSilentModeIOS` configuration
+1. **iOS**: Check `playsInSilentMode` configuration
 2. **Android**: Verify audio focus and ducking settings
 3. **Background playback**: Review platform background execution limitations
 

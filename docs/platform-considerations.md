@@ -10,16 +10,16 @@ This document covers platform-specific configurations, optimizations, and consid
 
 ## Minimum Platform Requirements
 
-**Expo SDK 52 Requirements:**
-- **iOS**: iOS 15.1+ (minimum deployment target raised from iOS 13.4)
-- **Android**: API level 24+ / Android 7.0+ (minSdkVersion raised from 23)
+**Expo SDK 55 Requirements:**
+- **iOS**: iOS 15.1+
+- **Android**: API level 24+ / Android 7.0+
 
-These requirements are enforced by Expo SDK 52 and React Native 0.76.9. Applications targeting older platform versions will need to use an earlier version of expo-edge-speech compatible with previous Expo SDK versions.
+These requirements are enforced by Expo SDK 55 and React Native 0.83. Applications targeting older platform versions will need to use an earlier version of expo-edge-speech compatible with previous Expo SDK versions.
 
 **Required Dependencies:**
-- **expo**: ~52.0.47
-- **expo-av**: ~15.0.2 (for audio playback)
-- **react-native**: 0.76.9
+- **expo**: ~55.0.17
+- **expo-audio**: ~55.0.14 (for audio playback)
+- **react-native**: 0.83.6
 
 ## Platform Support Matrix
 
@@ -72,7 +72,7 @@ expo-edge-speech uses a sophisticated two-phase workflow that ensures reliable a
 - Pause/resume operations are not available
 
 ### Phase 2: Local Playback  
-- Complete audio file is played locally using expo-av
+- Complete audio file is played locally using expo-audio
 - High-quality playback with full control capabilities
 - `isSpeakingAsync()` returns `true` during active playback
 - Pause/resume operations are fully available
@@ -96,7 +96,7 @@ expo-edge-speech uses a sophisticated two-phase workflow that ensures reliable a
 - Supported in standalone apps with proper configuration
 - **Not supported in Expo Go** due to platform restrictions
 - Requires background audio capability in app.json configuration
-- See [expo-av AudioMode documentation](https://docs.expo.dev/versions/latest/sdk/audio-av/#audiomode) for implementation details
+- See [expo-audio AudioMode documentation](https://docs.expo.dev/versions/latest/sdk/audio/#audiomode) for implementation details
 
 **Android Background Playback:**
 - Fully supported in both Expo Go and standalone apps

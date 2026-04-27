@@ -63,7 +63,6 @@ Balanced performance and battery efficiency for mobile applications:
 
 ```typescript
 import { configure } from 'expo-edge-speech';
-import { InterruptionModeIOS, InterruptionModeAndroid } from 'expo-av';
 
 configure({
   network: {
@@ -86,17 +85,10 @@ configure({
     loadingTimeout: 6000,
     autoInitializeAudioSession: true,
     platformConfig: {
-      ios: {
-        playsInSilentModeIOS: true,
-        staysActiveInBackground: false,  // Battery-friendly
-        interruptionModeIOS: InterruptionModeIOS.DoNotMix
-      },
-      android: {
-        shouldDuckAndroid: true,
-        staysActiveInBackground: false,  // Battery-friendly
-        playThroughEarpieceAndroid: false,
-        interruptionModeAndroid: InterruptionModeAndroid.DoNotMix
-      }
+      playsInSilentMode: true,
+      interruptionMode: 'doNotMix',
+      shouldPlayInBackground: false,      // Battery-friendly
+      shouldRouteThroughEarpiece: false
     }
   },
   storage: {
@@ -245,14 +237,10 @@ configure({
   audio: {
     loadingTimeout: 6000,       // 6s timeout for audio loading
     platformConfig: {
-      ios: {
-        playsInSilentModeIOS: true,      // Play even when device is silenced
-        staysActiveInBackground: false    // Stop when app backgrounds
-      },
-      android: {
-        shouldDuckAndroid: true,          // Lower volume for other audio
-        playThroughEarpieceAndroid: false // Use speakers, not earpiece
-      }
+      playsInSilentMode: true,           // iOS: play when device is silenced
+      interruptionMode: 'doNotMix',      // Don't interleave with other audio
+      shouldPlayInBackground: false,     // Stop when app backgrounds
+      shouldRouteThroughEarpiece: false  // Android: speakers, not earpiece
     }
   }
 });
@@ -311,7 +299,7 @@ configure({
   audio: {
     loadingTimeout: 8000,
     platformConfig: {
-      ios: { playsInSilentModeIOS: true }  // Play even if device is muted
+      playsInSilentMode: true  // iOS: play even if device is muted
     }
   }
 });
@@ -542,12 +530,8 @@ configure({
   },
   audio: {
     platformConfig: {
-      ios: {
-        staysActiveInBackground: false  // Don't keep audio active in background
-      },
-      android: {
-        shouldDuckAndroid: false       // Don't duck other audio to save processing
-      }
+      shouldPlayInBackground: false,    // Don't keep audio active in background
+      interruptionMode: 'doNotMix'      // Don't duck other audio to save processing
     }
   }
 });
@@ -723,7 +707,7 @@ const getConfigForEnvironment = () => {
     return {
       audio: {
         platformConfig: {
-          ios: { playsInSilentModeIOS: true }
+          playsInSilentMode: true
         }
       }
     };

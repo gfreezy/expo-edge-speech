@@ -28,7 +28,7 @@ For advanced configuration options including connection pooling, circuit breaker
 npx expo install expo-edge-speech
 ```
 
-**Dependencies:** The library automatically includes all required dependencies for Expo SDK 52.
+**Dependencies:** The library automatically includes all required dependencies for Expo SDK 55.
 
 ## Quick Start
 
@@ -708,14 +708,10 @@ configure({
   audio: {
     loadingTimeout: 6000,
     platformConfig: {
-      ios: { 
-        playsInSilentModeIOS: true,
-        staysActiveInBackground: false 
-      },
-      android: { 
-        shouldDuckAndroid: true,
-        playThroughEarpieceAndroid: false
-      }
+      playsInSilentMode: true,
+      interruptionMode: 'doNotMix',
+      shouldPlayInBackground: false,
+      shouldRouteThroughEarpiece: false
     }
   }
 });

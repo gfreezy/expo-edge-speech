@@ -12,30 +12,17 @@ global.console = {
   debug: jest.fn(),
 };
 
-// Mock expo-av for testing
-jest.mock("expo-av", () => ({
-  Audio: {
-    setAudioModeAsync: jest.fn(),
-    Sound: jest.fn().mockImplementation(() => ({
-      loadAsync: jest.fn(),
-      playAsync: jest.fn(),
-      pauseAsync: jest.fn(),
-      stopAsync: jest.fn(),
-      unloadAsync: jest.fn(),
-      setVolumeAsync: jest.fn(),
-      getStatusAsync: jest.fn(),
-      setOnPlaybackStatusUpdate: jest.fn(),
-    })),
-  },
-  InterruptionModeAndroid: {
-    DoNotMix: 1,
-    DuckOthers: 2,
-  },
-  InterruptionModeIOS: {
-    DoNotMix: 1,
-    DuckOthers: 2,
-    MixWithOthers: 0,
-  },
+// Mock expo-audio for testing
+jest.mock("expo-audio", () => ({
+  createAudioPlayer: jest.fn().mockImplementation(() => ({
+    play: jest.fn(),
+    pause: jest.fn(),
+    seekTo: jest.fn(),
+    remove: jest.fn(),
+    replace: jest.fn(),
+    addListener: jest.fn().mockReturnValue({ remove: jest.fn() }),
+  })),
+  setAudioModeAsync: jest.fn().mockResolvedValue(undefined),
 }));
 
 // Mock expo-crypto for testing

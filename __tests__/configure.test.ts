@@ -81,17 +81,10 @@ describe("Speech API Configuration", () => {
         },
         audio: {
           platformConfig: {
-            ios: {
-              staysActiveInBackground: false,
-              playsInSilentModeIOS: true,
-              interruptionModeIOS: 1,
-            },
-            android: {
-              staysActiveInBackground: false,
-              shouldDuckAndroid: true,
-              playThroughEarpieceAndroid: false,
-              interruptionModeAndroid: 1,
-            },
+            playsInSilentMode: true,
+            interruptionMode: "doNotMix",
+            shouldPlayInBackground: false,
+            shouldRouteThroughEarpiece: false,
           },
           loadingTimeout: 8000,
           autoInitializeAudioSession: true,

@@ -2,7 +2,7 @@
  * Comprehensive Tests for Edge TTS Audio Processing Utilities
  * This test suite combines all tests for audioUtils.ts functionality including:
  * - Basic Edge TTS audio processing utilities
- * - Enhanced utilities with WebSocket integration, Storage Service coordination, and expo-av compatibility
+ * - Enhanced utilities with WebSocket integration, Storage Service coordination, and expo-audio compatibility
  */
 
 import * as fs from "fs";
@@ -50,7 +50,7 @@ import {
   convertFromStorageServiceFormat,
   mergeStorageServiceAudioChunks,
 
-  // expo-av Compatibility
+  // expo-audio Compatibility
   ExpoAVAudioData,
   generateExpoAVDataURI,
   createExpoAVAudioData,
@@ -1424,7 +1424,7 @@ describe("AudioUtils Integration", () => {
     );
     expect(storageFormat).toBeDefined();
 
-    // Create expo-av data
+    // Create expo-audio compatible data
     const expoAVData = createExpoAVAudioData(parsed!.audioData, {
       format: "audio-24khz-48kbitrate-mono-mp3",
       sampleRate: 24000,
@@ -1705,9 +1705,9 @@ describe("Storage Service Integration", () => {
   });
 });
 
-describe("expo-av Compatibility", () => {
+describe("expo-audio Compatibility", () => {
   describe("createExpoAVAudioData", () => {
-    it("should create expo-av compatible audio data", () => {
+    it("should create expo-audio compatible audio data", () => {
       const mp3Data = createValidMP3Data();
 
       const result = createExpoAVAudioData(mp3Data);
@@ -1749,7 +1749,7 @@ describe("expo-av Compatibility", () => {
   });
 
   describe("validateExpoAVCompatibility", () => {
-    it("should validate compatible expo-av audio data", () => {
+    it("should validate compatible expo-audio audio data", () => {
       const mp3Data = createValidMP3Data();
       const audioData = createExpoAVAudioData(mp3Data);
 

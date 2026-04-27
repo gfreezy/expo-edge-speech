@@ -25,7 +25,7 @@ expo-edge-speech follows a clean 3-layer architecture:
 - **🔄 Batch Processing**: Complete synthesis before playback for reliability
 - **🎯 Session Management**: Unique session tracking for each synthesis request
 - **🛡️ Error Recovery**: Circuit breaker patterns and retry mechanisms
-- **📱 Platform Optimization**: Native audio integration via expo-av
+- **📱 Platform Optimization**: Native audio integration via expo-audio
 - **⚡ Resource Management**: Efficient memory and connection handling
 
 ## Synthesis Workflow Overview
@@ -381,14 +381,14 @@ configure({
 ### Platform-Specific Considerations
 
 **iOS:**
-- Silent mode handling via `playsInSilentModeIOS`
+- Silent mode handling via `playsInSilentMode`
 - Background limitations (Expo Go restrictions)
-- Audio session management via expo-av
+- Audio session management via expo-audio's `setAudioModeAsync`
 
 **Android:**
-- Audio ducking support via `shouldDuckAndroid`
+- Audio ducking support via `interruptionMode: 'duckOthers'`
 - Background execution capabilities
-- Earpiece routing options
+- Earpiece routing via `shouldRouteThroughEarpiece`
 
 **Web:**
 - Browser connection limits
@@ -446,14 +446,10 @@ configure({
   audio: {
     autoInitializeAudioSession: true,
     platformConfig: {
-      ios: {
-        playsInSilentModeIOS: true,  // Essential for iOS
-        interruptionModeIOS: InterruptionModeIOS.DoNotMix
-      },
-      android: {
-        shouldDuckAndroid: true,      // Better user experience
-        interruptionModeAndroid: InterruptionModeAndroid.DoNotMix
-      }
+      playsInSilentMode: true,           // Essential for iOS
+      interruptionMode: 'doNotMix',      // Don't interleave with other audio
+      shouldPlayInBackground: false,     // Foreground-only (default)
+      shouldRouteThroughEarpiece: false  // Use speakers, not earpiece
     }
   }
 });

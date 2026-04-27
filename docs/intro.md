@@ -33,7 +33,7 @@ React Native projects need Expo to use this library (and its dependencies):
 
 ```bash
 # Install Expo (if not already installed)
-npm install expo@sdk-52
+npm install expo@sdk-55
 
 # Install the library
 npm install expo-edge-speech
@@ -41,9 +41,9 @@ npm install expo-edge-speech
 
 ### Requirements
 
-- **Expo SDK 52** or higher
+- **Expo SDK 55** or higher
 - **iOS 15.1+** / **Android API 24+**
-- **React Native 0.76.9+**
+- **React Native 0.83+**
 
 ## Quick Start
 
@@ -71,9 +71,9 @@ await Speech.speak('Welcome to my app!', {
 
 ## Platform Support
 
-- **iOS:** 15.1+ (Expo SDK 52+)
-- **Android:** API 24+ (Expo SDK 52+)
-- **React Native:** 0.76.9+
+- **iOS:** 15.1+ (Expo SDK 55+)
+- **Android:** API 24+ (Expo SDK 55+)
+- **React Native:** 0.83+
 
 ## License
 

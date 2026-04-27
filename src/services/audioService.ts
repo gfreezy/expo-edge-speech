@@ -1,12 +1,20 @@
 /**
- * Provides audio playback service using expo-av with integration for Network Service,
+ * Provides audio playback service using expo-audio with integration for Network Service,
  * Storage Service, and Audio Utilities. Handles platform-specific configuration,
  * audio session management, and provides expo-speech compatible callbacks.
  */
 
-import { Audio } from "expo-av";
-import { Platform } from "react-native";
-import * as FileSystem from "expo-file-system";
+import {
+  createAudioPlayer,
+  setAudioModeAsync,
+  type AudioPlayer,
+  type AudioStatus,
+} from "expo-audio";
+// SDK 55 moved the classic File-System API (cacheDirectory, writeAsStringAsync,
+// EncodingType, getInfoAsync, deleteAsync) to the `/legacy` entry point.
+// The new File/Paths class-based API would require a larger refactor; staying
+// on the legacy entry preserves behavior with one import-path change.
+import * as FileSystem from "expo-file-system/legacy";
 import type {
   SpeechOptions,
   SpeechEventCallback,
@@ -16,6 +24,8 @@ import type {
 import { EDGE_TTS_CONFIG } from "../constants";
 import { StorageService } from "./storageService";
 import { validateEdgeTTSMP3 } from "../utils/audioUtils";
+
+type StatusSubscription = { remove: () => void };
 
 // =============================================================================
 // Audio Service Configuration and Types
@@ -57,8 +67,11 @@ export class AudioService {
   /** Current audio playback state */
   private state: AudioPlaybackState = AudioPlaybackState.Idle;
 
-  /** Current audio object from expo-av */
-  private sound: Audio.Sound | null = null;
+  /** Current audio player from expo-audio */
+  private player: AudioPlayer | null = null;
+
+  /** Subscription for the player's playbackStatusUpdate event */
+  private statusSubscription: StatusSubscription | null = null;
 
   /** Current connection ID for storage coordination */
   private connectionId: string | null = null;
@@ -72,7 +85,7 @@ export class AudioService {
   /** Whether audio session has been initialized */
   private audioSessionInitialized = false;
 
-  /** Current audio URI for expo-av */
+  /** Current audio URI loaded into the player */
   private audioURI: string | null = null;
 
   /** Current temporary audio file path */
@@ -256,16 +269,16 @@ export class AudioService {
   async pause(): Promise<void> {
     const timestamp = new Date().toISOString();
     console.log(
-      `[${timestamp}] [AudioService] pause() called - current state: ${this.state}, has sound: ${!!this.sound}`,
+      `[${timestamp}] [AudioService] pause() called - current state: ${this.state}, has player: ${!!this.player}`,
     );
 
     // Set user action state for deterministic tracking
     this.userActionState = UserActionState.PauseRequested;
 
     try {
-      if (this.sound && this.state === AudioPlaybackState.Playing) {
+      if (this.player && this.state === AudioPlaybackState.Playing) {
         console.log(`[${timestamp}] [AudioService] Pausing audio playback`);
-        await this.sound.pauseAsync();
+        this.player.pause();
         this.setState(AudioPlaybackState.Paused);
         console.log(
           `[${timestamp}] [AudioService] Audio paused successfully, state set to Paused`,
@@ -274,7 +287,7 @@ export class AudioService {
         // Note: onPause callback is handled by ConnectionManager, not AudioService
         // This ensures single callback invocation through proper 3-layer coordination
       } else {
-        if (!this.sound) {
+        if (!this.player) {
           console.log(
             `[${timestamp}] [AudioService] Pause skipped - no audio loaded`,
           );
@@ -309,16 +322,16 @@ export class AudioService {
   async resume(): Promise<void> {
     const timestamp = new Date().toISOString();
     console.log(
-      `[${timestamp}] [AudioService] resume() called - current state: ${this.state}, has sound: ${!!this.sound}`,
+      `[${timestamp}] [AudioService] resume() called - current state: ${this.state}, has player: ${!!this.player}`,
     );
 
     // Set user action state for deterministic tracking
     this.userActionState = UserActionState.ResumeRequested;
 
     try {
-      if (this.sound && this.state === AudioPlaybackState.Paused) {
+      if (this.player && this.state === AudioPlaybackState.Paused) {
         console.log(`[${timestamp}] [AudioService] Resuming audio playback`);
-        await this.sound.playAsync();
+        this.player.play();
         this.setState(AudioPlaybackState.Playing);
         console.log(
           `[${timestamp}] [AudioService] Audio resumed successfully, state set to Playing`,
@@ -327,7 +340,7 @@ export class AudioService {
         // Note: onResume callback is handled by ConnectionManager, not AudioService
         // This ensures single callback invocation through proper 3-layer coordination
       } else {
-        if (!this.sound) {
+        if (!this.player) {
           console.log(
             `[${timestamp}] [AudioService] Resume skipped - no audio loaded`,
           );
@@ -361,8 +374,10 @@ export class AudioService {
    */
   async stop(): Promise<void> {
     try {
-      if (this.sound) {
-        await this.sound.stopAsync();
+      if (this.player) {
+        // expo-audio has no stopAsync; pausing + seeking to 0 is the equivalent.
+        this.player.pause();
+        this.player.seekTo(0);
       }
 
       // Cleanup audio resources
@@ -446,7 +461,7 @@ export class AudioService {
       );
 
       // If audio is currently playing, we need to handle the transition smoothly
-      if (this.sound && this.state === AudioPlaybackState.Playing) {
+      if (this.player && this.state === AudioPlaybackState.Playing) {
         // Get the final complete audio data
         const finalAudioBuffer =
           this.storageService.getMergedAudioData(connectionId);
@@ -491,31 +506,58 @@ export class AudioService {
   }
 
   /**
-   * Load audio using expo-av Sound API
+   * Load audio using expo-audio's createAudioPlayer.
+   *
+   * createAudioPlayer is synchronous, but the asset still loads asynchronously.
+   * To preserve the existing contract (loadAudio resolves only when the player
+   * is ready), we attach the playbackStatusUpdate listener immediately and
+   * resolve once the first status update reports `isLoaded: true`. A timeout
+   * derived from `config.loadingTimeout` guards against the listener never
+   * firing (expo-audio's AudioStatus has no error field).
    */
   private async loadAudio(uri: string): Promise<void> {
-    try {
-      this.setState(AudioPlaybackState.Loading);
+    this.setState(AudioPlaybackState.Loading);
 
-      const loadingOptions = this.createLoadingOptions();
-      const { sound } = await Audio.Sound.createAsync({ uri }, loadingOptions);
+    const player = createAudioPlayer(uri);
+    this.player = player;
 
-      this.sound = sound;
+    return new Promise<void>((resolve, reject) => {
+      let settled = false;
+      const timeoutMs =
+        this.config.loadingTimeout ?? EDGE_TTS_CONFIG.audioTimeout;
 
-      // Set up playback status update callback
-      this.sound.setOnPlaybackStatusUpdate((status) => {
-        this.handlePlaybackStatusUpdate(status);
-      });
-    } catch (error) {
-      throw new Error(`Failed to load audio: ${error}`);
-    }
+      const timeoutId = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        this.statusSubscription?.remove();
+        this.statusSubscription = null;
+        reject(
+          new Error(
+            `Failed to load audio: timed out after ${timeoutMs}ms waiting for player to load`,
+          ),
+        );
+      }, timeoutMs);
+
+      const subscription = player.addListener(
+        "playbackStatusUpdate",
+        (status: AudioStatus) => {
+          if (!settled && status.isLoaded) {
+            settled = true;
+            clearTimeout(timeoutId);
+            resolve();
+          }
+          this.handlePlaybackStatusUpdate(status);
+        },
+      );
+      this.statusSubscription = subscription as StatusSubscription;
+    });
   }
 
   /**
    * Start audio playback
    */
   private async playAudio(): Promise<void> {
-    if (!this.sound) {
+    if (!this.player) {
       throw new Error("No audio loaded for playback");
     }
 
@@ -525,7 +567,7 @@ export class AudioService {
       this.onStartCallback();
     }
 
-    await this.sound.playAsync();
+    this.player.play();
   }
 
   /**
@@ -588,9 +630,14 @@ export class AudioService {
    * Unload current audio and free resources
    */
   private async unloadAudio(): Promise<void> {
-    if (this.sound) {
-      await this.sound.unloadAsync();
-      this.sound = null;
+    if (this.statusSubscription) {
+      this.statusSubscription.remove();
+      this.statusSubscription = null;
+    }
+
+    if (this.player) {
+      this.player.remove();
+      this.player = null;
     }
 
     // Clean up temporary audio file
@@ -626,7 +673,11 @@ export class AudioService {
   }
 
   /**
-   * Initialize audio session for platform-specific configuration
+   * Initialize audio session for platform-specific configuration.
+   *
+   * expo-audio's setAudioModeAsync accepts a unified AudioMode; fields that
+   * don't apply to the running platform are ignored, so we no longer need to
+   * branch on Platform.OS.
    */
   private async initializeAudioSession(): Promise<void> {
     if (this.audioSessionInitialized) {
@@ -636,24 +687,8 @@ export class AudioService {
     try {
       const platformConfig = this.config.platformConfig;
 
-      if (platformConfig && Platform.OS === "ios") {
-        await Audio.setAudioModeAsync({
-          // iOS-specific parameters only
-          staysActiveInBackground: platformConfig.ios.staysActiveInBackground,
-          playsInSilentModeIOS: platformConfig.ios.playsInSilentModeIOS,
-          interruptionModeIOS: platformConfig.ios.interruptionModeIOS,
-        });
-      } else if (platformConfig && Platform.OS === "android") {
-        await Audio.setAudioModeAsync({
-          // Android-specific parameters only
-          staysActiveInBackground:
-            platformConfig.android.staysActiveInBackground,
-          shouldDuckAndroid: platformConfig.android.shouldDuckAndroid,
-          playThroughEarpieceAndroid:
-            platformConfig.android.playThroughEarpieceAndroid,
-          interruptionModeAndroid:
-            platformConfig.android.interruptionModeAndroid,
-        });
+      if (platformConfig) {
+        await setAudioModeAsync(platformConfig);
       }
 
       this.audioSessionInitialized = true;
@@ -663,21 +698,12 @@ export class AudioService {
   }
 
   /**
-   * Create loading options for expo-av
+   * Handle playback status updates from expo-audio.
+   *
+   * AudioStatus reports time in seconds; convert to milliseconds for the
+   * existing position-tracking logic.
    */
-  private createLoadingOptions() {
-    return {
-      shouldPlay: false,
-      volume: 1.0,
-      isLooping: false,
-      isMuted: false,
-    };
-  }
-
-  /**
-   * Handle playback status updates from expo-av
-   */
-  private handlePlaybackStatusUpdate(status: any): void {
+  private handlePlaybackStatusUpdate(status: AudioStatus): void {
     if (status.isLoaded) {
       if (status.didJustFinish) {
         this.setState(AudioPlaybackState.Completed);
@@ -701,9 +727,11 @@ export class AudioService {
         }
       }
 
-      // Track position for validation
-      if (status.positionMillis > this.lastValidPosition) {
-        this.lastValidPosition = status.positionMillis;
+      // Track position for validation (in ms for backwards-compat with the
+      // enhanced interruption heuristics).
+      const positionMillis = (status.currentTime ?? 0) * 1000;
+      if (positionMillis > this.lastValidPosition) {
+        this.lastValidPosition = positionMillis;
       }
     }
   }
@@ -723,31 +751,35 @@ export class AudioService {
   /**
    * Enhanced interruption detection using audio status validation
    */
-  private isGenuineInterruption(status: any): boolean {
+  private isGenuineInterruption(status: AudioStatus): boolean {
     // Must not be playing
-    if (status.isPlaying !== false) return false;
+    if (status.playing !== false) return false;
 
     // Must be in Playing state to detect interruption
     if (this.state !== AudioPlaybackState.Playing) return false;
 
+    const positionMillis = (status.currentTime ?? 0) * 1000;
+    const durationMillis = (status.duration ?? 0) * 1000;
+
     // Validate it's not a startup transient (position > minimum threshold)
-    if (status.positionMillis && status.positionMillis < 100) return false;
+    if (positionMillis > 0 && positionMillis < 100) return false;
 
     // Validate audio is loaded and has duration
-    if (!status.isLoaded || !status.durationMillis) return false;
+    if (!status.isLoaded || !durationMillis) return false;
 
     // Validate it's not an intentional completion
     if (status.didJustFinish) return false;
 
-    // Check for error conditions that would indicate real interruption
-    if (status.error) return true;
+    // expo-audio's AudioStatus exposes `mediaServicesDidReset` for catastrophic
+    // resets (iOS); treat that as a definite interruption.
+    if (status.mediaServicesDidReset) return true;
 
     // Additional validation: check if position makes sense relative to duration
-    if (status.positionMillis > status.durationMillis) return false;
+    if (positionMillis > durationMillis) return false;
 
     // Check if audio has progressed sufficiently to be considered "started"
     const minimumProgressMs = 50; // Must have played at least 50ms
-    if ((status.positionMillis || 0) < minimumProgressMs) return false;
+    if (positionMillis < minimumProgressMs) return false;
 
     return true; // All criteria met for genuine interruption
   }
@@ -787,19 +819,14 @@ export class AudioService {
   ): SpeechAudioConfig {
     return {
       platformConfig: {
-        ios: {
-          // iOS-specific parameters
-          staysActiveInBackground: false, // Note: not available in Expo Go for iOS
-          playsInSilentModeIOS: true, // TTS should work even in silent mode
-          interruptionModeIOS: 1, // DO_NOT_MIX (InterruptionModeIOS.DoNotMix)
-        },
-        android: {
-          // Android-specific parameters
-          staysActiveInBackground: false, // Don't need background audio for TTS
-          shouldDuckAndroid: true, // TTS should lower other audio
-          playThroughEarpieceAndroid: false, // Use speakers, not earpiece
-          interruptionModeAndroid: 1, // DO_NOT_MIX (InterruptionModeAndroid.DoNotMix)
-        },
+        // TTS should play even when the iOS ringer is silenced.
+        playsInSilentMode: true,
+        // Don't interleave with other audio sessions by default.
+        interruptionMode: "doNotMix",
+        // Don't keep audio active when the app backgrounds.
+        shouldPlayInBackground: false,
+        // Use speakers, not the earpiece.
+        shouldRouteThroughEarpiece: false,
       },
       loadingTimeout: EDGE_TTS_CONFIG.audioTimeout,
       autoInitializeAudioSession: true,

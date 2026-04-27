@@ -24,7 +24,7 @@ React Native projects need Expo to use this library (and its dependencies):
 
 ```bash
 # Install Expo (if not already installed)
-npm install expo@sdk-52
+npm install expo@sdk-55
 
 # Install the library
 npm install expo-edge-speech
@@ -32,9 +32,9 @@ npm install expo-edge-speech
 
 ### Requirements
 
-- **Expo SDK 52** or higher
+- **Expo SDK 55** or higher
 - **iOS 15.1+** / **Android API 24+**
-- **React Native 0.76.9+**
+- **React Native 0.83+**
 
 ## Usage
 
@@ -77,7 +77,7 @@ npx expo start
 **Created by** [Otaro](https://github.com/oovz)
 
 **Built with:**
-- [expo-av](https://docs.expo.dev/versions/latest/sdk/av/) - Audio playback functionality
+- [expo-audio](https://docs.expo.dev/versions/latest/sdk/audio/) - Audio playback functionality
 - [expo-crypto](https://docs.expo.dev/versions/latest/sdk/crypto/) - Cryptographic operations
 - [expo-file-system](https://docs.expo.dev/versions/latest/sdk/filesystem/) - File management and caching
 - [edge-tts](https://github.com/rany2/edge-tts) - Edge TTS Python library

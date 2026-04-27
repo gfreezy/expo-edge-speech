@@ -798,21 +798,11 @@ interface SpeechAudioConfig {
   loadingTimeout?: number;
   autoInitializeAudioSession?: boolean;
   platformConfig?: {
-    ios?: {
-      allowsRecordingIOS?: boolean;
-      staysActiveInBackground?: boolean;
-      playsInSilentModeIOS?: boolean;
-      interruptionModeIOS?: number;
-    };
-    android?: {
-      staysActiveInBackground?: boolean;
-      shouldDuckAndroid?: boolean;
-      playThroughEarpieceAndroid?: boolean;
-      interruptionModeAndroid?: number;
-    };
-    web?: {
-      staysActiveInBackground?: boolean;
-    };
+    playsInSilentMode?: boolean;
+    interruptionMode?: 'mixWithOthers' | 'doNotMix' | 'duckOthers';
+    shouldPlayInBackground?: boolean;
+    shouldRouteThroughEarpiece?: boolean;
+    allowsRecording?: boolean;
   };
 }
 ```
@@ -829,13 +819,11 @@ interface SpeechAudioConfig {
 - Default: true
 - Required for most platforms
 
-**`platformConfig?.ios`**
-- iOS-specific audio configuration using expo-av settings
-- Controls silent mode behavior, background playback, and interruption handling
-
-**`platformConfig?.android`**
-- Android-specific audio configuration using expo-av settings
-- Controls background playback, ducking, and audio routing
+**`platformConfig`**
+- Audio session configuration applied via `expo-audio`'s `setAudioModeAsync`.
+  Mirrors the `AudioMode` shape — fields that don't apply to the running
+  platform are silently ignored at runtime, so a single object is sufficient
+  for both iOS and Android.
 
 ---
 
@@ -978,36 +966,28 @@ interface SpeechStateConfig {
 
 ### `PlatformAudioConfig`
 
-Platform-specific audio configuration for expo-av integration.
+Audio session configuration passed to `expo-audio`'s `setAudioModeAsync()`.
+Mirrors `expo-audio`'s `AudioMode` shape — fields that don't apply to the
+current platform are ignored by the runtime, so a single object covers iOS
+and Android.
 
 ```typescript
 interface PlatformAudioConfig {
-  ios: {
-    staysActiveInBackground?: boolean;
-    playsInSilentModeIOS?: boolean;
-    interruptionModeIOS: InterruptionModeIOS;
-  };
-  android: {
-    staysActiveInBackground?: boolean;
-    shouldDuckAndroid?: boolean;
-    playThroughEarpieceAndroid?: boolean;
-    interruptionModeAndroid: InterruptionModeAndroid;
-  };
+  playsInSilentMode?: boolean;
+  interruptionMode?: 'mixWithOthers' | 'doNotMix' | 'duckOthers';
+  shouldPlayInBackground?: boolean;
+  shouldRouteThroughEarpiece?: boolean;
+  allowsRecording?: boolean;
 }
 ```
 
 #### Properties
 
-**iOS Configuration:**
-- `staysActiveInBackground`: Keep audio session active in background (not available in Expo Go)
-- `playsInSilentModeIOS`: Play audio when device is in silent mode
-- `interruptionModeIOS`: How to handle audio interruptions (required)
-
-**Android Configuration:**
-- `staysActiveInBackground`: Keep audio session active in background
-- `shouldDuckAndroid`: Lower other audio while TTS is playing
-- `playThroughEarpieceAndroid`: Route audio through phone earpiece
-- `interruptionModeAndroid`: How to handle audio interruptions (required)
+- `playsInSilentMode` *(iOS)*: Play audio when the device's ringer switch is silenced.
+- `interruptionMode`: How playback interacts with other audio sessions. `'doNotMix'` interrupts other audio, `'duckOthers'` lowers other audio, `'mixWithOthers'` plays alongside.
+- `shouldPlayInBackground`: Keep audio active when the app backgrounds (both platforms).
+- `shouldRouteThroughEarpiece` *(Android)*: Route audio through the earpiece instead of speakers.
+- `allowsRecording` *(iOS)*: Permit recording while audio is active. Rarely needed for TTS.
 
 ---
 
@@ -1042,14 +1022,8 @@ const config: SpeechAPIConfig = {
   },
   audio: {
     platformConfig: {
-      ios: {
-        interruptionModeIOS: InterruptionModeIOS.DoNotMix,
-        playsInSilentModeIOS: true
-      },
-      android: {
-        interruptionModeAndroid: InterruptionModeAndroid.DoNotMix,
-        shouldDuckAndroid: true
-      }
+      playsInSilentMode: true,
+      interruptionMode: 'doNotMix'
     }
   }
 };
@@ -1220,29 +1194,21 @@ const VoiceSelector: React.FC<VoiceSelectorProps> = ({ onVoiceSelect }) => {
 };
 ```
 
-### Expo SDK 52 Integration
+### Expo SDK 55 Integration
 
 ```typescript
-import { Audio } from 'expo-av';
 import { Speech, SpeechAPIConfig } from 'expo-edge-speech';
-import { InterruptionModeIOS, InterruptionModeAndroid } from 'expo-av';
 
-// Configure for Expo SDK 52
+// Configure for Expo SDK 55
 const config: SpeechAPIConfig = {
   audio: {
     autoInitializeAudioSession: true,
     loadingTimeout: 5000,
     platformConfig: {
-      ios: {
-        interruptionModeIOS: InterruptionModeIOS.DoNotMix,
-        playsInSilentModeIOS: true,
-        staysActiveInBackground: false // Not available in Expo Go
-      },
-      android: {
-        interruptionModeAndroid: InterruptionModeAndroid.DoNotMix,
-        shouldDuckAndroid: true,
-        staysActiveInBackground: true
-      }
+      playsInSilentMode: true,
+      interruptionMode: 'doNotMix',
+      shouldPlayInBackground: false,
+      shouldRouteThroughEarpiece: false
     }
   },
   connection: {

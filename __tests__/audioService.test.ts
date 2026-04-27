@@ -1,31 +1,28 @@
 /**
  * Comprehensive test suite covering Audio Service functionality including:
  * - Integration with Storage Service and Audio Utilities
- * - Platform-specific audio configuration (iOS/Android/Web)
+ * - Unified audio session configuration via expo-audio's setAudioModeAsync
  * - Audio session management and interruption handling
  * - Playback controls (play, pause, resume, stop)
  * - expo-speech compatible callbacks
  * - Error handling and resource management
  */
 
-import { Audio } from "expo-av";
-import { Platform } from "react-native";
+import { createAudioPlayer, setAudioModeAsync } from "expo-audio";
 import { AudioService, AudioPlaybackState } from "../src/services/audioService";
 import { StorageService } from "../src/services/storageService";
 import type { SpeechOptions } from "../src/types";
 
-// Mock expo-av
-jest.mock("expo-av", () => ({
-  Audio: {
-    setAudioModeAsync: jest.fn().mockResolvedValue(undefined),
-    Sound: {
-      createAsync: jest.fn(),
-    },
-  },
+// Mock expo-audio
+jest.mock("expo-audio", () => ({
+  createAudioPlayer: jest.fn(),
+  setAudioModeAsync: jest.fn().mockResolvedValue(undefined),
 }));
 
-// Mock expo-file-system
-jest.mock("expo-file-system", () => ({
+// Mock expo-file-system's legacy entry — that's where audioService imports from
+// in SDK 55. The classic cacheDirectory/EncodingType/writeAsStringAsync API
+// lives here now.
+jest.mock("expo-file-system/legacy", () => ({
   cacheDirectory: "file:///cache/",
   writeAsStringAsync: jest.fn().mockResolvedValue(undefined),
   getInfoAsync: jest.fn().mockResolvedValue({ exists: true }),
@@ -35,22 +32,62 @@ jest.mock("expo-file-system", () => ({
   },
 }));
 
-// Mock react-native Platform
-jest.mock("react-native", () => ({
-  Platform: {
-    OS: "ios",
-  },
-}));
-
 // Mock Audio Utilities
 jest.mock("../src/utils/audioUtils", () => ({
   validateEdgeTTSMP3: jest.fn().mockReturnValue(true),
 }));
 
+type MockPlayer = {
+  play: jest.Mock;
+  pause: jest.Mock;
+  seekTo: jest.Mock;
+  remove: jest.Mock;
+  replace: jest.Mock;
+  addListener: jest.Mock;
+};
+
+/**
+ * Build a mock player that auto-fires a "loaded" status update when a listener
+ * is attached, so AudioService.loadAudio() resolves the same way it would
+ * against a real expo-audio player.
+ */
+function createMockPlayer(
+  options: { autoLoad?: boolean } = { autoLoad: true },
+): MockPlayer {
+  const player: MockPlayer = {
+    play: jest.fn(),
+    pause: jest.fn(),
+    seekTo: jest.fn(),
+    remove: jest.fn(),
+    replace: jest.fn(),
+    addListener: jest.fn(),
+  };
+
+  player.addListener.mockImplementation(
+    (_event: string, cb: (status: any) => void) => {
+      if (options.autoLoad) {
+        // Defer so the awaiting Promise has a chance to register.
+        setImmediate(() =>
+          cb({
+            isLoaded: true,
+            playing: false,
+            currentTime: 0,
+            duration: 5,
+            didJustFinish: false,
+          }),
+        );
+      }
+      return { remove: jest.fn() };
+    },
+  );
+
+  return player;
+}
+
 describe("AudioService", () => {
   let audioService: AudioService;
   let storageService: StorageService;
-  let mockSound: any;
+  let mockPlayer: MockPlayer;
   let mockSpeechOptions: SpeechOptions;
 
   beforeEach(() => {
@@ -61,25 +98,14 @@ describe("AudioService", () => {
     const { validateEdgeTTSMP3 } = require("../src/utils/audioUtils");
     validateEdgeTTSMP3.mockReturnValue(true);
 
-    // Create mock sound object
-    mockSound = {
-      playAsync: jest.fn().mockResolvedValue(undefined),
-      pauseAsync: jest.fn().mockResolvedValue(undefined),
-      stopAsync: jest.fn().mockResolvedValue(undefined),
-      unloadAsync: jest.fn().mockResolvedValue(undefined),
-      setOnPlaybackStatusUpdate: jest.fn(),
-    };
-
-    // Mock Audio.Sound.createAsync to return our mock sound
-    (Audio.Sound.createAsync as jest.Mock).mockResolvedValue({
-      sound: mockSound,
-    });
+    mockPlayer = createMockPlayer();
+    (createAudioPlayer as jest.Mock).mockReturnValue(mockPlayer);
 
     // Create mock storage service
     storageService = {
       getMergedAudioData: jest
         .fn()
-        .mockReturnValue(new Uint8Array([72, 101, 108, 108, 111])), // "Hello" in bytes for better testing
+        .mockReturnValue(new Uint8Array([72, 101, 108, 108, 111])), // "Hello" in bytes
       addAudioChunk: jest.fn().mockReturnValue(true),
       cleanupConnection: jest.fn().mockReturnValue(true),
     } as any;
@@ -128,52 +154,24 @@ describe("AudioService", () => {
   // =============================================================================
 
   describe("audio session management", () => {
-    it("should initialize audio session for iOS platform", async () => {
-      (Platform as any).OS = "ios";
-
+    it("should configure the audio session via setAudioModeAsync", async () => {
       await audioService.speak(mockSpeechOptions, "test-connection-1");
 
-      expect(Audio.setAudioModeAsync).toHaveBeenCalledWith({
-        staysActiveInBackground: false,
-        playsInSilentModeIOS: true,
-        interruptionModeIOS: 1,
+      expect(setAudioModeAsync).toHaveBeenCalledWith({
+        playsInSilentMode: true,
+        interruptionMode: "doNotMix",
+        shouldPlayInBackground: false,
+        shouldRouteThroughEarpiece: false,
       });
-    });
-
-    it("should initialize audio session for Android platform", async () => {
-      (Platform as any).OS = "android";
-
-      await audioService.speak(mockSpeechOptions, "test-connection-2");
-
-      expect(Audio.setAudioModeAsync).toHaveBeenCalledWith({
-        staysActiveInBackground: false,
-        shouldDuckAndroid: true,
-        playThroughEarpieceAndroid: false,
-        interruptionModeAndroid: 1,
-      });
-    });
-
-    it("should handle unsupported platform gracefully", async () => {
-      (Platform as any).OS = "web"; // unsupported platform
-
-      await audioService.speak(mockSpeechOptions, "test-connection-3");
-
-      // Should not call setAudioModeAsync for unsupported platforms
-      expect(Audio.setAudioModeAsync).not.toHaveBeenCalled();
     });
 
     it("should not reinitialize audio session if already initialized", async () => {
-      // Set platform to iOS to ensure audio session initialization
-      (Platform as any).OS = "ios";
-
-      // Create a fresh AudioService instance to ensure audioSessionInitialized is false
       const freshAudioService = new AudioService(storageService);
 
       await freshAudioService.speak(mockSpeechOptions, "test-connection-1");
       await freshAudioService.speak(mockSpeechOptions, "test-connection-2");
 
-      // Should only be called once for iOS platform
-      expect(Audio.setAudioModeAsync).toHaveBeenCalledTimes(1);
+      expect(setAudioModeAsync).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -253,7 +251,7 @@ describe("AudioService", () => {
     });
 
     it("should start audio playback", async () => {
-      expect(mockSound.playAsync).toHaveBeenCalled();
+      expect(mockPlayer.play).toHaveBeenCalled();
       expect(audioService.currentState).toBe(AudioPlaybackState.Playing);
       expect(mockSpeechOptions.onStart).toHaveBeenCalled();
     });
@@ -261,7 +259,7 @@ describe("AudioService", () => {
     it("should pause audio playback", async () => {
       await audioService.pause();
 
-      expect(mockSound.pauseAsync).toHaveBeenCalled();
+      expect(mockPlayer.pause).toHaveBeenCalled();
       expect(audioService.currentState).toBe(AudioPlaybackState.Paused);
       // Note: onPause callback is handled by ConnectionManager, not AudioService
     });
@@ -270,31 +268,34 @@ describe("AudioService", () => {
       await audioService.pause();
       await audioService.resume();
 
-      expect(mockSound.playAsync).toHaveBeenCalledTimes(2); // Initial play + resume
+      // Initial play + resume
+      expect(mockPlayer.play).toHaveBeenCalledTimes(2);
       expect(audioService.currentState).toBe(AudioPlaybackState.Playing);
-      // Note: onResume callback is handled by ConnectionManager, not AudioService
     });
 
     it("should stop audio playback", async () => {
       await audioService.stop();
 
-      expect(mockSound.stopAsync).toHaveBeenCalled();
+      // expo-audio has no stopAsync; AudioService pauses + seeks to 0 then removes.
+      expect(mockPlayer.pause).toHaveBeenCalled();
+      expect(mockPlayer.seekTo).toHaveBeenCalledWith(0);
       expect(audioService.currentState).toBe(AudioPlaybackState.Stopped);
       expect(mockSpeechOptions.onStopped).toHaveBeenCalled();
     });
 
     it("should not pause if not playing", async () => {
-      await audioService.stop(); // Stop first
+      await audioService.stop();
       await audioService.pause();
 
-      expect(mockSound.pauseAsync).toHaveBeenCalledTimes(0);
+      // pause was called once during stop(); no further calls from pause()
+      expect(mockPlayer.pause).toHaveBeenCalledTimes(1);
     });
 
     it("should not resume if not paused", async () => {
-      // Try to resume while playing
       await audioService.resume();
 
-      expect(mockSound.playAsync).toHaveBeenCalledTimes(1); // Only initial play
+      // Only the initial play call
+      expect(mockPlayer.play).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -314,9 +315,8 @@ describe("AudioService", () => {
     it("should trigger onDone callback when playback completes", async () => {
       await audioService.speak(mockSpeechOptions, "test-connection");
 
-      // Simulate playback completion
-      const statusUpdateCallback =
-        mockSound.setOnPlaybackStatusUpdate.mock.calls[0][0];
+      // Simulate playback completion via the captured listener
+      const statusUpdateCallback = mockPlayer.addListener.mock.calls[0][1];
       statusUpdateCallback({
         isLoaded: true,
         didJustFinish: true,
@@ -325,25 +325,21 @@ describe("AudioService", () => {
       expect(mockSpeechOptions.onDone).toHaveBeenCalled();
     });
 
-    it("should trigger onPause callback when paused", async () => {
+    it("should track Paused state when paused", async () => {
       await audioService.speak(mockSpeechOptions, "test-connection");
       await audioService.pause();
 
-      // AudioService focuses on state management and playback control
       expect(audioService.currentState).toBe(AudioPlaybackState.Paused);
-      expect(mockSound.pauseAsync).toHaveBeenCalled();
-      // Note: onPause callback is handled by ConnectionManager in the new architecture
+      expect(mockPlayer.pause).toHaveBeenCalled();
     });
 
-    it("should trigger onResume callback when resumed", async () => {
+    it("should track Playing state when resumed", async () => {
       await audioService.speak(mockSpeechOptions, "test-connection");
       await audioService.pause();
       await audioService.resume();
 
-      // AudioService focuses on state management and playback control
       expect(audioService.currentState).toBe(AudioPlaybackState.Playing);
-      expect(mockSound.playAsync).toHaveBeenCalledTimes(2); // Initial play + resume
-      // Note: onResume callback is handled by ConnectionManager in the new architecture
+      expect(mockPlayer.play).toHaveBeenCalledTimes(2);
     });
 
     it("should trigger onStopped callback when stopped", async () => {
@@ -354,7 +350,9 @@ describe("AudioService", () => {
     });
 
     it("should trigger onError callback on playback failure", async () => {
-      mockSound.playAsync.mockRejectedValue(new Error("Playback failed"));
+      mockPlayer.play.mockImplementationOnce(() => {
+        throw new Error("Playback failed");
+      });
 
       await audioService.speak(mockSpeechOptions, "test-connection");
 
@@ -395,10 +393,10 @@ describe("AudioService", () => {
       });
     });
 
-    it("should handle expo-av loading errors", async () => {
-      (Audio.Sound.createAsync as jest.Mock).mockRejectedValue(
-        new Error("Failed to load audio"),
-      );
+    it("should handle expo-audio loading errors", async () => {
+      (createAudioPlayer as jest.Mock).mockImplementationOnce(() => {
+        throw new Error("Failed to load audio");
+      });
 
       await audioService.speak(mockSpeechOptions, "test-connection");
 
@@ -412,7 +410,9 @@ describe("AudioService", () => {
 
     it("should handle pause errors gracefully", async () => {
       await audioService.speak(mockSpeechOptions, "test-connection");
-      mockSound.pauseAsync.mockRejectedValue(new Error("Pause failed"));
+      mockPlayer.pause.mockImplementationOnce(() => {
+        throw new Error("Pause failed");
+      });
 
       await audioService.pause();
 
@@ -426,7 +426,9 @@ describe("AudioService", () => {
     it("should handle resume errors gracefully", async () => {
       await audioService.speak(mockSpeechOptions, "test-connection");
       await audioService.pause();
-      mockSound.playAsync.mockRejectedValue(new Error("Resume failed"));
+      mockPlayer.play.mockImplementationOnce(() => {
+        throw new Error("Resume failed");
+      });
 
       await audioService.resume();
 
@@ -439,7 +441,9 @@ describe("AudioService", () => {
 
     it("should handle stop errors without throwing", async () => {
       await audioService.speak(mockSpeechOptions, "test-connection");
-      mockSound.stopAsync.mockRejectedValue(new Error("Stop failed"));
+      mockPlayer.pause.mockImplementationOnce(() => {
+        throw new Error("Stop failed");
+      });
 
       // Should not throw
       await expect(audioService.stop()).resolves.toBeUndefined();
@@ -452,11 +456,11 @@ describe("AudioService", () => {
 
   describe("resource management", () => {
     it("should properly unload audio resources", async () => {
-      const FileSystem = require("expo-file-system");
+      const FileSystem = require("expo-file-system/legacy");
       await audioService.speak(mockSpeechOptions, "test-connection");
       await audioService.stop();
 
-      expect(mockSound.unloadAsync).toHaveBeenCalled();
+      expect(mockPlayer.remove).toHaveBeenCalled();
 
       // Should cleanup temporary file immediately after audio unload
       expect(FileSystem.getInfoAsync).toHaveBeenCalled();
@@ -474,7 +478,9 @@ describe("AudioService", () => {
 
     it("should handle unload errors gracefully", async () => {
       await audioService.speak(mockSpeechOptions, "test-connection");
-      mockSound.unloadAsync.mockRejectedValue(new Error("Unload failed"));
+      mockPlayer.remove.mockImplementationOnce(() => {
+        throw new Error("Unload failed");
+      });
 
       // Should not throw
       await expect(audioService.stop()).resolves.toBeUndefined();
@@ -508,10 +514,8 @@ describe("AudioService", () => {
     it("should handle playback status updates", async () => {
       await audioService.speak(mockSpeechOptions, "test-connection");
 
-      const statusUpdateCallback =
-        mockSound.setOnPlaybackStatusUpdate.mock.calls[0][0];
+      const statusUpdateCallback = mockPlayer.addListener.mock.calls[0][1];
 
-      // Simulate playback completion
       statusUpdateCallback({
         isLoaded: true,
         didJustFinish: true,
@@ -523,40 +527,34 @@ describe("AudioService", () => {
     it("should handle interruptions", async () => {
       await audioService.speak(mockSpeechOptions, "test-connection");
 
-      const statusUpdateCallback =
-        mockSound.setOnPlaybackStatusUpdate.mock.calls[0][0];
+      const statusUpdateCallback = mockPlayer.addListener.mock.calls[0][1];
 
-      // Simulate genuine interruption with enhanced validation properties
+      // Simulate genuine interruption: stopped mid-playback after >100ms.
       statusUpdateCallback({
         isLoaded: true,
-        isPlaying: false,
+        playing: false,
         didJustFinish: false,
-        positionMillis: 150, // Must be > 100ms to pass startup threshold
-        durationMillis: 5000, // Valid audio duration
-        error: null, // No error condition
+        currentTime: 0.15, // 150ms — past the startup threshold
+        duration: 5, // 5s of audio
       });
 
-      // No need to wait for timeout - enhanced validation is immediate
       expect(audioService.currentState).toBe(AudioPlaybackState.Paused);
     });
 
     it("should filter out false positive interruptions during startup", async () => {
       await audioService.speak(mockSpeechOptions, "test-connection");
 
-      const statusUpdateCallback =
-        mockSound.setOnPlaybackStatusUpdate.mock.calls[0][0];
+      const statusUpdateCallback = mockPlayer.addListener.mock.calls[0][1];
 
-      // Simulate false positive during startup (position too low)
+      // Simulate false positive during startup: position below 100ms threshold.
       statusUpdateCallback({
         isLoaded: true,
-        isPlaying: false,
+        playing: false,
         didJustFinish: false,
-        positionMillis: 50, // Below 100ms threshold - should be filtered out
-        durationMillis: 5000,
-        error: null,
+        currentTime: 0.05, // 50ms — should be filtered as startup transient
+        duration: 5,
       });
 
-      // State should remain Playing (no false positive detection)
       expect(audioService.currentState).toBe(AudioPlaybackState.Playing);
     });
   });
@@ -572,7 +570,7 @@ describe("AudioService", () => {
       expect(storageService.getMergedAudioData).toHaveBeenCalledWith(
         "stream-connection",
       );
-      expect(mockSound.playAsync).toHaveBeenCalled();
+      expect(mockPlayer.play).toHaveBeenCalled();
       expect(audioService.currentConnectionId).toBe("stream-connection");
     });
 
@@ -581,7 +579,6 @@ describe("AudioService", () => {
         new Uint8Array(0),
       );
 
-      // Provide error callback for streamed audio
       const originalOnError = jest.fn();
       (audioService as any).onErrorCallback = originalOnError;
 
@@ -597,28 +594,20 @@ describe("AudioService", () => {
   });
 
   // =============================================================================
-  // Android Specific Tests
+  // Pause/Resume Independent of Platform
   // =============================================================================
 
-  describe("Android specific tests", () => {
-    it("should support pause/resume on Android platform", async () => {
-      // Set platform to Android
-      (Platform as any).OS = "android";
-
-      // Start playback
+  describe("pause/resume", () => {
+    it("should pause and resume regardless of platform", async () => {
       await audioService.speak(mockSpeechOptions, "test-connection-android");
 
-      // Test pause on Android
       await audioService.pause();
-      expect(mockSound.pauseAsync).toHaveBeenCalled();
+      expect(mockPlayer.pause).toHaveBeenCalled();
       expect(audioService.currentState).toBe(AudioPlaybackState.Paused);
-      // Note: onPause callback is handled by ConnectionManager, not AudioService
 
-      // Test resume on Android
       await audioService.resume();
-      expect(mockSound.playAsync).toHaveBeenCalledTimes(2); // Initial play + resume
+      expect(mockPlayer.play).toHaveBeenCalledTimes(2); // initial + resume
       expect(audioService.currentState).toBe(AudioPlaybackState.Playing);
-      // Note: onResume callback is handled by ConnectionManager, not AudioService
     });
   });
 
@@ -628,47 +617,40 @@ describe("AudioService", () => {
 
   describe("temporary file creation and cleanup", () => {
     it("should create temporary file and load audio successfully", async () => {
-      const FileSystem = require("expo-file-system");
+      const FileSystem = require("expo-file-system/legacy");
 
       await audioService.speak(mockSpeechOptions, "test-connection");
 
       // Should write to temporary file
       expect(FileSystem.writeAsStringAsync).toHaveBeenCalled();
 
-      // Should create audio from file URI, not blob URL
+      // Should create audio player from file URI
       const writeCall = (FileSystem.writeAsStringAsync as jest.Mock).mock
         .calls[0];
       const fileUri = writeCall[0];
       expect(fileUri).toMatch(/^file:\/\/\/cache\/audio_\d+_[a-z0-9]+\.mp3$/);
 
-      // Should load audio with file URI
-      const { Audio } = require("expo-av");
-      expect(Audio.Sound.createAsync).toHaveBeenCalledWith(
-        { uri: fileUri },
-        expect.any(Object),
-      );
+      expect(createAudioPlayer).toHaveBeenCalledWith(fileUri);
     });
 
     it("should clean up temporary file on stop", async () => {
-      const FileSystem = require("expo-file-system");
+      const FileSystem = require("expo-file-system/legacy");
 
       await audioService.speak(mockSpeechOptions, "test-connection");
       await audioService.stop();
 
-      // Should check if file exists and delete it immediately
       expect(FileSystem.getInfoAsync).toHaveBeenCalled();
       expect(FileSystem.deleteAsync).toHaveBeenCalled();
     });
 
     it("should handle base64 encoding correctly", async () => {
-      const FileSystem = require("expo-file-system");
+      const FileSystem = require("expo-file-system/legacy");
       const testData = new Uint8Array([72, 101, 108, 108, 111]); // "Hello"
 
       storageService.getMergedAudioData = jest.fn().mockReturnValue(testData);
 
       await audioService.speak(mockSpeechOptions, "test-connection");
 
-      // Should write base64 encoded data
       const writeCall = (FileSystem.writeAsStringAsync as jest.Mock).mock
         .calls[0];
       const [, base64Data, options] = writeCall;
@@ -678,14 +660,16 @@ describe("AudioService", () => {
     });
 
     it("should handle file creation errors gracefully", async () => {
-      const FileSystem = require("expo-file-system");
-      FileSystem.writeAsStringAsync.mockRejectedValue(
+      const FileSystem = require("expo-file-system/legacy");
+      // Use *Once* — jest.clearAllMocks() doesn't reset implementations, so
+      // a persistent rejection here would poison every subsequent test that
+      // calls speak() / playStreamedAudio().
+      FileSystem.writeAsStringAsync.mockRejectedValueOnce(
         new Error("File write failed"),
       );
 
       await audioService.speak(mockSpeechOptions, "test-connection");
 
-      // Should trigger error callback
       expect(mockSpeechOptions.onError).toHaveBeenCalledWith(
         expect.objectContaining({
           name: "AudioPlaybackError",
@@ -698,8 +682,9 @@ describe("AudioService", () => {
     });
 
     it("should handle cleanup errors gracefully", async () => {
-      const FileSystem = require("expo-file-system");
-      FileSystem.deleteAsync.mockRejectedValue(new Error("Delete failed"));
+      const FileSystem = require("expo-file-system/legacy");
+      // *Once* so we don't bleed the rejected state into later tests.
+      FileSystem.deleteAsync.mockRejectedValueOnce(new Error("Delete failed"));
 
       await audioService.speak(mockSpeechOptions, "test-connection");
 
@@ -710,28 +695,19 @@ describe("AudioService", () => {
 
   describe("file-based audio integration", () => {
     it("should work with playStreamedAudio", async () => {
-      const FileSystem = require("expo-file-system");
+      const FileSystem = require("expo-file-system/legacy");
 
-      // Mock validation to ensure it passes
       const { validateEdgeTTSMP3 } = require("../src/utils/audioUtils");
       validateEdgeTTSMP3.mockReturnValue(true);
 
-      // Ensure storageService returns valid data for the connection
       (storageService.getMergedAudioData as jest.Mock).mockReturnValue(
-        new Uint8Array([72, 101, 108, 108, 111]), // "Hello" in bytes
+        new Uint8Array([72, 101, 108, 108, 111]), // "Hello"
       );
 
-      try {
-        await audioService.playStreamedAudio("stream-connection");
+      await audioService.playStreamedAudio("stream-connection");
 
-        // Should create temporary file for streamed audio too
-        expect(FileSystem.writeAsStringAsync).toHaveBeenCalled();
-        expect(mockSound.playAsync).toHaveBeenCalled();
-      } catch (error) {
-        console.error("playStreamedAudio test error:", error);
-        // If there's an error, let's just check that the file creation was attempted
-        expect(FileSystem.writeAsStringAsync).toHaveBeenCalled();
-      }
+      expect(FileSystem.writeAsStringAsync).toHaveBeenCalled();
+      expect(mockPlayer.play).toHaveBeenCalled();
     });
 
     it("should validate MP3 format before creating file", async () => {
@@ -740,7 +716,6 @@ describe("AudioService", () => {
 
       await audioService.speak(mockSpeechOptions, "test-connection");
 
-      // Should trigger error for invalid MP3
       expect(mockSpeechOptions.onError).toHaveBeenCalledWith(
         expect.objectContaining({
           message: expect.stringContaining("Invalid MP3 audio format"),
@@ -749,17 +724,10 @@ describe("AudioService", () => {
     });
 
     it("should trigger callbacks correctly with file-based approach", async () => {
-      try {
-        await audioService.speak(mockSpeechOptions, "test-connection");
+      await audioService.speak(mockSpeechOptions, "test-connection");
 
-        // Should trigger onStart callback
-        expect(mockSpeechOptions.onStart).toHaveBeenCalled();
-        expect(audioService.currentState).toBe(AudioPlaybackState.Playing);
-      } catch (error) {
-        console.error("speak error:", error);
-        // Check if it failed with an error
-        expect(mockSpeechOptions.onError).toHaveBeenCalled();
-      }
+      expect(mockSpeechOptions.onStart).toHaveBeenCalled();
+      expect(audioService.currentState).toBe(AudioPlaybackState.Playing);
     });
   });
 });
