@@ -73,12 +73,30 @@ export const EDGE_TTS_BASE_URL =
 /**
  * Chromium version for Sec-MS-GEC-Version header
  */
-export const CHROMIUM_VERSION = "130.0.2849.68";
+export const CHROMIUM_VERSION = "143.0.3650.75";
 
 /**
  * SEC-MS-GEC version format template
  */
 export const SEC_MS_GEC_VERSION = `1-${CHROMIUM_VERSION}`;
+
+/**
+ * Chromium major version (used in User-Agent, where the minor segments are 0).
+ */
+const CHROMIUM_MAJOR_VERSION = CHROMIUM_VERSION.split(".")[0];
+
+/**
+ * HTTP handshake headers sent with the Edge TTS WebSocket upgrade. Edge TTS
+ * rejects the handshake with HTTP 403 when Origin or User-Agent are missing /
+ * don't match the Edge browser/extension signature.
+ */
+export const EDGE_TTS_WSS_HANDSHAKE_HEADERS: Readonly<Record<string, string>> =
+  Object.freeze({
+    Origin: "chrome-extension://jdiccldimpdaibmpdkjnbmckianbfold",
+    "User-Agent": `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${CHROMIUM_MAJOR_VERSION}.0.0.0 Safari/537.36 Edg/${CHROMIUM_MAJOR_VERSION}.0.0.0`,
+    Pragma: "no-cache",
+    "Cache-Control": "no-cache",
+  });
 
 /**
  * Edge TTS Voice List API endpoint
@@ -419,7 +437,7 @@ export const SEC_MS_GEC_GENERATION = Object.freeze({
   CLOCK_SKEW_MINUTES: 5, // 5-minute clock skew for rounding
   CLOCK_SKEW_SECONDS: 300, // 5 minutes in seconds
   CLOCK_SKEW_TICKS: 3000000000, // 5 minutes in ticks (3,000,000,000 ticks)
-  HASH_INPUT_FORMAT: "{ticks}MSEdgeSpeechTTS", // Format: windowsFileTimeTicks + "MSEdgeSpeechTTS"
+  HASH_INPUT_FORMAT: "{ticks}{trustedClientToken}", // Format: windowsFileTimeTicks + EDGE_TTS_TRUSTED_CLIENT_TOKEN
   HASH_ALGORITHM: "SHA-256", // Hash algorithm for token generation
   RESULT_FORMAT: "uppercase", // Result must be uppercase hexadecimal
 });

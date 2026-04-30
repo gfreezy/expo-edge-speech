@@ -19,7 +19,9 @@ import {
 import type { ReactNativeWebSocket } from "../rn-types";
 
 import {
+  EDGE_TTS_TRUSTED_CLIENT_TOKEN,
   EDGE_TTS_WEBSOCKET_URL_TEMPLATE,
+  EDGE_TTS_WSS_HANDSHAKE_HEADERS,
   SEC_MS_GEC_VERSION,
   CONNECTION_LIFECYCLE,
   MESSAGE_PATHS,
@@ -139,21 +141,24 @@ export const timingConverter: TimingConverter = {
 // =============================================================================
 
 /**
- * Generate Windows file time for authentication
- */
-function generateWindowsFileTime(): number {
-  const now = new Date();
-  const unixTime = Math.floor(now.getTime() / 1000);
-  // Windows file time: 100-nanosecond intervals since 1601-01-01
-  return (unixTime + SEC_MS_GEC_GENERATION.WIN_EPOCH) * 10000000;
-}
-
-/**
- * Generate SHA-256 hash
+ * Generate SHA-256 hash for the Sec-MS-GEC token. Mirrors rany2/edge-tts
+ * `DRM.generate_sec_ms_gec`:
+ *   1. unix seconds + WIN_EPOCH
+ *   2. round down to nearest 5 minutes (in seconds)
+ *   3. multiply by 1e7 to get 100ns Windows-filetime ticks
+ *   4. SHA-256(<ticks><TRUSTED_CLIENT_TOKEN>) uppercase
+ *
+ * Round in seconds (safe int) before multiplying — the post-multiply value
+ * (~1.3e17) exceeds Number.MAX_SAFE_INTEGER, so use BigInt for the final
+ * tick string. The hash suffix is the trusted-client-token hex constant; the
+ * "MSEdgeSpeechTTS" string previously used here is not part of the protocol.
  */
 async function generateSecMSGECToken(): Promise<string> {
-  const ticks = generateWindowsFileTime();
-  const hashInput = `${ticks}MSEdgeSpeechTTS`;
+  const unixSecs = Math.floor(Date.now() / 1000);
+  const winSecs = unixSecs + SEC_MS_GEC_GENERATION.WIN_EPOCH;
+  const rounded = winSecs - (winSecs % SEC_MS_GEC_GENERATION.CLOCK_SKEW_SECONDS);
+  const ticks = BigInt(rounded) * 10_000_000n;
+  const hashInput = `${ticks.toString()}${EDGE_TTS_TRUSTED_CLIENT_TOKEN}`;
 
   const token = await Crypto.digestStringAsync(
     Crypto.CryptoDigestAlgorithm.SHA256,
@@ -340,9 +345,19 @@ export class NetworkService {
       }, this.config.connectionTimeout);
 
       try {
-        // Create WebSocket with authentication headers required by Edge TTS protocol
-        // Note: React Native WebSocket headers are handled differently than DOM WebSocket
-        const websocket = new WebSocket(url) as unknown as ReactNativeWebSocket;
+        // Edge TTS rejects the upgrade with HTTP 403 unless the request looks
+        // like it's coming from the Edge browser/extension. RN's WebSocket
+        // forwards options.headers to the native handshake; DOM WebSocket
+        // would silently drop these (forbidden header names), but this is
+        // RN-only — cast around the DOM-typed global.
+        const RNWebSocket = WebSocket as unknown as new (
+          url: string,
+          protocols?: string | string[],
+          options?: { headers?: Record<string, string> },
+        ) => ReactNativeWebSocket;
+        const websocket = new RNWebSocket(url, undefined, {
+          headers: EDGE_TTS_WSS_HANDSHAKE_HEADERS,
+        });
 
         websocket.binaryType = "arraybuffer";
 

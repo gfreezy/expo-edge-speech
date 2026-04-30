@@ -43,7 +43,7 @@
     "@types/jest": "^29.5.14",
     "@types/react": "~19.2.14",
     "eslint": "^8.57.0",
-    "eslint-config-expo": "~8.0.1",
+    "eslint-config-expo": "~55.0.0",
     "eslint-config-prettier": "^10.1.5",
     "eslint-plugin-prettier": "^5.4.0",
     "expo": "~55.0.17",

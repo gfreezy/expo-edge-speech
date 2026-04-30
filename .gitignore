@@ -69,3 +69,4 @@ package-lock.json
 /sample_data
 .yarn/
 internal-docs/
+.expo
