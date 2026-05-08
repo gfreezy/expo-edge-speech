@@ -5,7 +5,12 @@
  */
 
 import { MAX_TEXT_LENGTH } from "./constants";
-import { Synthesizer } from "./core/synthesizer";
+import {
+  Synthesizer,
+  type SynthesisChunkListener,
+  type SynthesisFileResult,
+  type SynthesisResult,
+} from "./core/synthesizer";
 import { ConnectionManager } from "./core/connectionManager";
 import { StateManager } from "./core/state";
 import { AudioService } from "./services/audioService";
@@ -66,13 +71,12 @@ class SpeechAPI {
    * // Configure before using any Speech API methods
    * Speech.configure({
    *   network: {
-   *     maxRetries: 3,
    *     connectionTimeout: 8000,
    *     enableDebugLogging: true
    *   },
    *   connection: {
    *     maxConnections: 5,
-   *     poolingEnabled: true,
+   *     queueWhenSaturated: true,
    *     circuitBreaker: {
    *       failureThreshold: 3,
    *       recoveryTimeout: 15000
@@ -141,26 +145,11 @@ class SpeechAPI {
         undefined, // Assuming StateManager also takes config
       );
 
-      // Map SpeechConnectionConfig to ConnectionManagerConfig if provided
-      let connectionManagerConfig = undefined;
-      if (config?.connection) {
-        connectionManagerConfig = {
-          maxConnections: config.connection.maxConnections,
-          // Ensure all mapped properties from SpeechConnectionConfig are present
-          // For example:
-          // connectionTimeout: config.connection.connectionTimeout,
-          // poolingEnabled: config.connection.poolingEnabled,
-          // circuitBreaker: config.connection.circuitBreaker,
-          // And any other properties ConnectionManagerConfig expects
-        };
-      }
-
       this.connectionManager = new ConnectionManager(
-        stateManager,
         networkService,
         this.audioService,
         storageService,
-        connectionManagerConfig, // Pass the mapped config
+        config?.connection,
       );
 
       this.synthesizer = new Synthesizer(
@@ -212,6 +201,43 @@ class SpeechAPI {
 
       throw speechError;
     }
+  }
+
+  /**
+   * Synthesize audio bytes WITHOUT playing them. Each chunk received from the
+   * Edge TTS server is forwarded to `onAudioChunk` (if provided) before being
+   * collected into the merged buffer that the Promise resolves with.
+   *
+   * Bypasses the audio playback path entirely — useful for caching audio to
+   * disk, streaming bytes elsewhere, or sidestepping audio-cleanup races.
+   */
+  async synthesize(
+    text: string,
+    options: SpeechOptions = {},
+    onAudioChunk?: SynthesisChunkListener,
+  ): Promise<SynthesisResult> {
+    await this.initializeServices();
+    if (!this.synthesizer) {
+      throw new Error("Synthesizer not initialized");
+    }
+    return this.synthesizer.synthesize(text, options, onAudioChunk);
+  }
+
+  /**
+   * Synthesize audio and write the result to a file. Returns the file URI,
+   * audio duration, and byte size. If `filePath` is omitted, a unique path
+   * under FileSystem.cacheDirectory is generated.
+   */
+  async synthesizeToFile(
+    text: string,
+    options: SpeechOptions = {},
+    filePath?: string,
+  ): Promise<SynthesisFileResult> {
+    await this.initializeServices();
+    if (!this.synthesizer) {
+      throw new Error("Synthesizer not initialized");
+    }
+    return this.synthesizer.synthesizeToFile(text, options, filePath);
   }
 
   /**
@@ -519,13 +545,12 @@ class SpeechAPI {
  * // Configure before using any Speech API methods
  * configure({
  *   network: {
- *     maxRetries: 3,
  *     connectionTimeout: 8000,
  *     enableDebugLogging: true
  *   },
  *   connection: {
  *     maxConnections: 5,
- *     poolingEnabled: true,
+ *     queueWhenSaturated: true,
  *     circuitBreaker: {
  *       failureThreshold: 3,
  *       recoveryTimeout: 15000
@@ -743,6 +768,61 @@ export const isSpeakingAsync = (): Promise<boolean> => {
 export const cleanup = (): Promise<void> => {
   const speechInstance = SpeechAPI.getInstance(); // Changed Speech to SpeechAPI
   return speechInstance.cleanup();
+};
+
+/**
+ * Synthesize audio bytes WITHOUT playing them.
+ *
+ * @param text Text to synthesize.
+ * @param options Speech options (voice, language, rate, pitch, volume).
+ * @param onAudioChunk Optional callback fired for each audio frame as it
+ *   streams in from Edge TTS, in server order.
+ * @returns A promise that resolves to the merged audio bytes (MP3) and
+ *   reported duration.
+ *
+ * @example
+ * ```typescript
+ * const { audio, durationMs } = await synthesize('Hello world');
+ * // `audio` is a Uint8Array of MP3 bytes.
+ *
+ * // Stream chunks as they arrive:
+ * await synthesize('Long passage...', { voice: 'en-US-AriaNeural' }, (chunk) => {
+ *   console.log('chunk', chunk.length);
+ * });
+ * ```
+ */
+export const synthesize = (
+  text: string,
+  options: SpeechOptions = {},
+  onAudioChunk?: SynthesisChunkListener,
+): Promise<SynthesisResult> => {
+  const speechInstance = SpeechAPI.getInstance();
+  return speechInstance.synthesize(text, options, onAudioChunk);
+};
+
+/**
+ * Synthesize audio and write it to a file.
+ *
+ * @param text Text to synthesize.
+ * @param options Speech options.
+ * @param filePath Optional destination URI. Defaults to a unique path under
+ *   `FileSystem.cacheDirectory` ending in `.mp3`.
+ * @returns A promise that resolves with the file URI, audio duration, and
+ *   byte size.
+ *
+ * @example
+ * ```typescript
+ * const { uri, size } = await synthesizeToFile('Hello world');
+ * console.log(`Wrote ${size} bytes to ${uri}`);
+ * ```
+ */
+export const synthesizeToFile = (
+  text: string,
+  options: SpeechOptions = {},
+  filePath?: string,
+): Promise<SynthesisFileResult> => {
+  const speechInstance = SpeechAPI.getInstance();
+  return speechInstance.synthesizeToFile(text, options, filePath);
 };
 
 /**

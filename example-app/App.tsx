@@ -79,13 +79,12 @@ export default function App() {
   useEffect(() => {
     const speechConfig: SpeechAPIConfig = {
       network: {
-        maxRetries: 3,
         connectionTimeout: 8000,
         enableDebugLogging: true  // Enable debug output
       },
       connection: {
         maxConnections: 5,
-        poolingEnabled: true
+        queueWhenSaturated: true
       },
       audio: {
         loadingTimeout: 6000,

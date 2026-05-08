@@ -8,6 +8,8 @@
 export {
   configure,
   speak,
+  synthesize,
+  synthesizeToFile,
   getAvailableVoicesAsync,
   stop,
   pause,
@@ -17,6 +19,12 @@ export {
   maxSpeechInputLength,
   default as Speech,
 } from "./Speech";
+
+export type {
+  SynthesisChunkListener,
+  SynthesisFileResult,
+  SynthesisResult,
+} from "./core/synthesizer";
 
 export type {
   SpeechOptions,

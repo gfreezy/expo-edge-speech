@@ -372,16 +372,8 @@ export const CONNECTION_LIFECYCLE = Object.freeze({
     TURN_END_WAIT: 3000, // Wait for turn.end message timeout (3s)
     GRACEFUL_CLOSE: 2000, // Graceful connection close timeout (2s)
   },
-  RETRY_LIMITS: {
-    CONNECTION_ATTEMPTS: 3, // Maximum connection retry attempts
-    AUTH_FAILURES: 2, // Maximum authentication retry attempts
-    MESSAGE_RESENDS: 1, // Maximum message resend attempts
-    CLOCK_SKEW_ADJUSTMENTS: 3, // Maximum clock skew adjustment attempts
-  },
   POOL_MANAGEMENT: {
     MAX_POOL_SIZE: 1, // Edge TTS uses single connection per synthesis
-    CONNECTION_REUSE: false, // Do not reuse connections for new synthesis
-    IDLE_TIMEOUT: 60000, // Connection idle timeout (60s)
     CLEANUP_INTERVAL: 30000, // Pool cleanup interval (30s)
   },
 });

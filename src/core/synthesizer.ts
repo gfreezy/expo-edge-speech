@@ -1,16 +1,46 @@
+import * as FileSystem from "expo-file-system/legacy";
+
 import type {
   SpeechOptions,
   EdgeSpeechVoice,
   WordBoundary,
   SpeechError,
 } from "../types";
-import { generateSessionId } from "../utils/commonUtils";
+import {
+  generateConnectionId,
+  generateSessionId,
+} from "../utils/commonUtils";
 import { generateSSML } from "../utils/ssmlUtils";
 import { StateManager, ApplicationState, SynthesisSession } from "./state";
 import { ConnectionManager } from "./connectionManager";
 import { AudioService, AudioPlaybackState } from "../services/audioService";
 import { VoiceService } from "../services/voiceService";
 import { NetworkService } from "../services/networkService";
+
+/**
+ * Result of a synthesize-only call (no audio playback).
+ */
+export interface SynthesisResult {
+  /** Merged audio bytes in MP3 format. */
+  audio: Uint8Array;
+  /** Reported synthesis duration in milliseconds (0 when not provided). */
+  durationMs: number;
+}
+
+/**
+ * Result of writing a synthesis to disk.
+ */
+export interface SynthesisFileResult {
+  /** File URI where audio was written. */
+  uri: string;
+  /** Audio duration in milliseconds (0 when not provided). */
+  durationMs: number;
+  /** Number of bytes written. */
+  size: number;
+}
+
+/** Per-chunk callback used by `synthesize`. */
+export type SynthesisChunkListener = (chunk: Uint8Array) => void;
 
 /**
  * Main synthesizer that coordinates complete speech synthesis workflow.
@@ -188,6 +218,105 @@ export class Synthesizer {
       await this.stateManager.removeSynthesisSession(session.id);
     }
     this.sessions.clear();
+  }
+
+  /**
+   * Synthesize audio bytes WITHOUT playing them. Each audio frame received
+   * from the Edge TTS WebSocket is forwarded synchronously to `onAudioChunk`
+   * (if provided) before being collected into the merged buffer that the
+   * Promise resolves with.
+   *
+   * Bypasses ConnectionManager/AudioService entirely — only NetworkService is
+   * exercised — so callers don't fight audio cleanup races.
+   */
+  async synthesize(
+    text: string,
+    options: SpeechOptions = {},
+    onAudioChunk?: SynthesisChunkListener,
+  ): Promise<SynthesisResult> {
+    if (!text || text.trim().length === 0) {
+      throw new Error("Text cannot be empty");
+    }
+
+    const voice = await this.resolveVoice(options.voice, options.language);
+    const ssml = generateSSML(text, {
+      voice: voice.identifier,
+      rate: options.rate,
+      pitch: options.pitch,
+      volume: options.volume,
+      language: options.language || voice.language,
+    });
+
+    const sessionId = generateSessionId();
+    const connectionId = generateConnectionId();
+
+    const collected: Uint8Array[] = [];
+    const aggregatingHook: SynthesisChunkListener = (chunk) => {
+      collected.push(chunk);
+      if (onAudioChunk) {
+        try {
+          onAudioChunk(chunk);
+        } catch (err) {
+          console.warn(
+            "[Synthesizer] onAudioChunk listener threw:",
+            err,
+          );
+        }
+      }
+    };
+
+    const response = await this.networkService.synthesizeText(
+      ssml,
+      options,
+      sessionId,
+      connectionId,
+      aggregatingHook,
+    );
+
+    const totalSize = collected.reduce((sum, c) => sum + c.length, 0);
+    const merged = new Uint8Array(totalSize);
+    let offset = 0;
+    for (const chunk of collected) {
+      merged.set(chunk, offset);
+      offset += chunk.length;
+    }
+
+    return {
+      audio: merged,
+      durationMs: response.duration ?? 0,
+    };
+  }
+
+  /**
+   * Synthesize and write the result to disk as an MP3. If `filePath` is not
+   * provided, a unique path under `FileSystem.cacheDirectory` is generated.
+   */
+  async synthesizeToFile(
+    text: string,
+    options: SpeechOptions = {},
+    filePath?: string,
+  ): Promise<SynthesisFileResult> {
+    const { audio, durationMs } = await this.synthesize(text, options);
+
+    const uri = filePath ?? this.makeTempAudioPath();
+
+    let binaryString = "";
+    for (let i = 0; i < audio.length; i++) {
+      binaryString += String.fromCharCode(audio[i]!);
+    }
+    const base64 = btoa(binaryString);
+
+    await FileSystem.writeAsStringAsync(uri, base64, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+
+    return { uri, durationMs, size: audio.length };
+  }
+
+  private makeTempAudioPath(): string {
+    const ts = Date.now();
+    const rand = Math.random().toString(36).slice(2, 8);
+    return `${FileSystem.cacheDirectory}edge-tts-${ts}-${rand}.mp3`;
   }
 
   /**

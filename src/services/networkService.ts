@@ -112,6 +112,12 @@ interface SynthesisSession {
   timeoutHandle?: ReturnType<typeof setTimeout>;
   /** Current position in original text for boundary event mapping */
   lastBoundaryPosition?: number;
+  /**
+   * Optional per-chunk hook. Fires once for every audio frame received from
+   * Edge TTS, in the order the server sent them. Used by the synthesize-only
+   * public APIs to stream chunks out without going through audio playback.
+   */
+  onAudioChunk?: (chunk: Uint8Array) => void;
 }
 
 // =============================================================================
@@ -156,7 +162,8 @@ export const timingConverter: TimingConverter = {
 async function generateSecMSGECToken(): Promise<string> {
   const unixSecs = Math.floor(Date.now() / 1000);
   const winSecs = unixSecs + SEC_MS_GEC_GENERATION.WIN_EPOCH;
-  const rounded = winSecs - (winSecs % SEC_MS_GEC_GENERATION.CLOCK_SKEW_SECONDS);
+  const rounded =
+    winSecs - (winSecs % SEC_MS_GEC_GENERATION.CLOCK_SKEW_SECONDS);
   const ticks = BigInt(rounded) * 10_000_000n;
   const hashInput = `${ticks.toString()}${EDGE_TTS_TRUSTED_CLIENT_TOKEN}`;
 
@@ -189,11 +196,6 @@ export class NetworkService {
   ) {
     this.storageService = storageService;
     this.config = {
-      maxRetries:
-        config.maxRetries ??
-        CONNECTION_LIFECYCLE.RETRY_LIMITS.CONNECTION_ATTEMPTS,
-      baseRetryDelay: config.baseRetryDelay ?? 1000,
-      maxRetryDelay: config.maxRetryDelay ?? 10000,
       connectionTimeout:
         config.connectionTimeout ??
         CONNECTION_LIFECYCLE.TIMEOUTS.CONNECTION_ESTABLISHMENT,
@@ -218,6 +220,7 @@ export class NetworkService {
     // Add clientSessionId and connectionId parameters
     clientSessionId: string,
     connectionId: string,
+    onAudioChunk?: (chunk: Uint8Array) => void,
   ): Promise<SynthesisResponse> {
     const requestId = clientSessionId;
 
@@ -256,6 +259,7 @@ export class NetworkService {
         },
         createdAt: new Date(),
         promise: { resolve, reject },
+        onAudioChunk,
       };
 
       // Set timeout for total synthesis
@@ -265,8 +269,7 @@ export class NetworkService {
 
       this.activeSessions.set(requestId, session);
 
-      // Start synthesis with retry logic
-      this.performSynthesisWithRetry(session, 0).catch((error) => {
+      this.performSynthesis(session).catch((error) => {
         this.cleanupSession(requestId);
         reject(error);
       });
@@ -768,11 +771,26 @@ export class NetworkService {
       const audioChunk = new Uint8Array(binaryMessage.audioData);
       session.response.audioChunks.push(audioChunk);
 
-      // Add audio chunk to storage buffer (ConnectionManager creates buffer)
-      this.storageService.addAudioChunk(
-        session.request.connectionId,
-        audioChunk,
-      );
+      // Synthesize-only callers want chunks streamed straight out without ever
+      // touching StorageService. They opt in by providing onAudioChunk and
+      // skipping createConnectionBuffer; in that case we must NOT addAudioChunk
+      // (it would throw "No buffer found").
+      if (session.onAudioChunk) {
+        try {
+          session.onAudioChunk(audioChunk);
+        } catch (err) {
+          console.warn(
+            "[NetworkService] onAudioChunk listener threw:",
+            err,
+          );
+        }
+      } else {
+        // Add audio chunk to storage buffer (ConnectionManager creates buffer)
+        this.storageService.addAudioChunk(
+          session.request.connectionId,
+          audioChunk,
+        );
+      }
 
       // this.log(
       //   `Added audio chunk for session ${requestId}, size: ${audioChunk.length}`,
@@ -1040,94 +1058,22 @@ export class NetworkService {
   // Synthesis Flow Management
   // ===========================================================================
 
-  /**
-   * Perform synthesis with retry logic
-   */
-  private async performSynthesisWithRetry(
-    session: SynthesisSession,
-    attempt: number,
-  ): Promise<void> {
+  /** Retry/backoff lives in ConnectionManager; each call opens a fresh WebSocket. */
+  private async performSynthesis(session: SynthesisSession): Promise<void> {
     const { requestId, connectionId } = session.request;
-    this.log(
-      `Attempt ${attempt + 1} for synthesis request ${requestId} using connection ${connectionId}`,
-    );
+    this.log(`Synthesis request ${requestId} using connection ${connectionId}`);
 
     try {
-      let connection = this.connections.get(connectionId);
-      if (
-        !connection ||
-        !connection.websocket ||
-        connection.websocket.readyState !== WS_OPEN
-      ) {
-        if (connection) {
-          this.log(
-            `Connection ${connectionId} exists but is not open (state: ${connection.websocket?.readyState}). Recreating.`,
-          );
-          if (connection.websocket) {
-            connection.websocket.onopen = null;
-            connection.websocket.onmessage = null;
-            connection.websocket.onerror = null;
-            connection.websocket.onclose = null;
-            try {
-              connection.websocket.close();
-            } catch (e) {
-              this.log(
-                `Error closing stale websocket for ${connectionId}: ${e}`,
-              );
-            }
-          }
-          this.connections.delete(connectionId);
-        }
-        this.log(
-          `Creating new connection ${connectionId} for request ${requestId}`,
-        );
-        connection = await this.createConnection(connectionId);
-      } else {
-        this.log(
-          `Reusing existing open connection ${connectionId} for request ${requestId}`,
-        );
-      }
+      const connection = await this.createConnection(connectionId);
 
-      // Send speech config message
       await this.sendSpeechConfig(connection, requestId);
-
-      // Send SSML request
       await this.sendSSMLRequest(connection, session);
 
-      // Set synthesis state
       connection.state = ConnectionState.Synthesizing;
 
       this.log(`Synthesis started for request ${requestId}`);
     } catch (error) {
-      // Clean up connection on error
-      await this.closeConnection(requestId);
-      throw error;
-    }
-  }
-
-  /**
-   * Perform single synthesis attempt
-   */
-  private async performSynthesis(session: SynthesisSession): Promise<void> {
-    const { request } = session;
-
-    try {
-      // Create connection
-      const connection = await this.createConnection(request.connectionId);
-
-      // Send speech configuration
-      await this.sendSpeechConfig(connection, request.requestId);
-
-      // Send SSML request
-      await this.sendSSMLRequest(connection, session);
-
-      // Set synthesis state
-      connection.state = ConnectionState.Synthesizing;
-
-      this.log(`Synthesis started for request ${request.requestId}`);
-    } catch (error) {
-      // Clean up connection on error
-      await this.closeConnection(request.connectionId);
+      await this.closeConnection(connectionId);
       throw error;
     }
   }
@@ -1155,19 +1101,9 @@ export class NetworkService {
       return;
     }
 
-    // Complete storage coordination
     this.storageService.markConnectionCompleted(session.request.connectionId);
 
-    // Call completion callback
-    if (session.request.options.onDone) {
-      try {
-        session.request.options.onDone();
-      } catch (error) {
-        this.log(`Error in onDone callback:`, error);
-      }
-    }
-
-    // Resolve synthesis promise
+    // onDone fires from ConnectionManager after playback, not here.
     session.promise.resolve(session.response);
 
     // Cleanup
@@ -1200,19 +1136,9 @@ export class NetworkService {
   ): void {
     this.log(`Connection error on ${connection.id}:`, error);
 
-    // Find sessions using this connection
+    // onError fires from ConnectionManager, not here.
     for (const [requestId, session] of this.activeSessions.entries()) {
       if (session.request.connectionId === connection.id) {
-        // Call error callback
-        if (session.request.options.onError) {
-          try {
-            session.request.options.onError(error);
-          } catch (callbackError) {
-            this.log(`Error in onError callback:`, callbackError);
-          }
-        }
-
-        // Reject synthesis promise
         session.promise.reject(error);
         this.cleanupSession(requestId);
       }

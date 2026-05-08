@@ -18,7 +18,6 @@ describe("NetworkService handleTextMessage", () => {
 
   beforeEach(() => {
     const config: SpeechNetworkConfig = {
-      maxRetries: 2,
       connectionTimeout: 5000,
       enableDebugLogging: false,
     };

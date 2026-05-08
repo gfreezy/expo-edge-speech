@@ -12,13 +12,12 @@ describe("Speech API Configuration", () => {
     test("should accept valid configuration", () => {
       const config: SpeechAPIConfig = {
         network: {
-          maxRetries: 3,
           connectionTimeout: 8000,
           enableDebugLogging: true,
         },
         connection: {
           maxConnections: 5,
-          poolingEnabled: true,
+          queueWhenSaturated: true,
           circuitBreaker: {
             failureThreshold: 3,
             recoveryTimeout: 15000,
@@ -37,7 +36,7 @@ describe("Speech API Configuration", () => {
     test("should accept partial configuration", () => {
       const config: SpeechAPIConfig = {
         network: {
-          maxRetries: 5,
+          connectionTimeout: 5000,
         },
         audio: {
           loadingTimeout: 10000,
@@ -72,9 +71,6 @@ describe("Speech API Configuration", () => {
     test("should support all configuration interfaces", () => {
       const fullConfig: SpeechAPIConfig = {
         network: {
-          maxRetries: 3,
-          baseRetryDelay: 1000,
-          maxRetryDelay: 10000,
           connectionTimeout: 10000,
           gracefulCloseTimeout: 5000,
           enableDebugLogging: true,
@@ -96,8 +92,7 @@ describe("Speech API Configuration", () => {
         },
         connection: {
           maxConnections: 10,
-          connectionTimeout: 15000,
-          poolingEnabled: true,
+          queueWhenSaturated: true,
           circuitBreaker: {
             failureThreshold: 5,
             recoveryTimeout: 30000,
@@ -132,7 +127,7 @@ describe("Speech API Configuration", () => {
     test("should block configuration after Speech API initialization", async () => {
       const config: SpeechAPIConfig = {
         network: {
-          maxRetries: 2,
+          connectionTimeout: 5000,
         },
       };
 

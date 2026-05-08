@@ -650,7 +650,7 @@ import { configure, cleanup } from 'expo-edge-speech';
 
 // Advanced configuration
 configure({
-  network: { maxRetries: 3 },
+  network: { connectionTimeout: 8000 },
   audio: { loadingTimeout: 5000 }
 });
 
@@ -693,13 +693,12 @@ import { configure, speak } from 'expo-edge-speech';
 // Basic configuration for better performance
 configure({
   network: {
-    maxRetries: 3,
     connectionTimeout: 8000,
     enableDebugLogging: __DEV__ // Enable in development only
   },
   connection: {
     maxConnections: 5,
-    poolingEnabled: true,
+    queueWhenSaturated: true,
     circuitBreaker: {
       failureThreshold: 3,
       recoveryTimeout: 15000
@@ -722,8 +721,8 @@ await speak('Hello, configured world!');
 
 **Configuration Categories:**
 
-- **network**: Network service configuration (retries, timeouts, debugging)
-- **connection**: Connection manager configuration (pooling, circuit breaker)
+- **network**: Network service configuration (timeouts, debugging)
+- **connection**: Connection manager configuration (concurrency, queueing, circuit breaker)
 - **audio**: Audio service configuration (platform settings, timeouts)
 - **storage**: Storage service configuration (memory limits, cleanup)
 - **voice**: Voice service configuration (caching, fetching)
@@ -735,7 +734,7 @@ For detailed configuration options, see the [Configuration Guide](./configuratio
 ```typescript
 try {
   configure({
-    network: { maxRetries: 3 },
+    network: { connectionTimeout: 8000 },
     audio: { loadingTimeout: 5000 }
   });
   console.log('Configuration applied successfully');
@@ -748,9 +747,9 @@ configure({}); // ✅ Valid: empty config uses defaults
 configure(null); // ❌ Error: Configuration must be a valid object
 
 // Configuration after initialization
-configure({ network: { maxRetries: 3 } });
+configure({ network: { connectionTimeout: 8000 } });
 await speak("Hello"); // Initializes Speech API
-configure({ network: { maxRetries: 5 } }); // ❌ Error: Cannot change after initialization
+configure({ network: { connectionTimeout: 10000 } }); // ❌ Error: Cannot change after initialization
 ```
 
 ## Error Handling Patterns

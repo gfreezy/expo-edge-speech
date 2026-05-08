@@ -459,12 +459,6 @@ export interface SpeechAudioConfig {
  * Network service configuration interface
  */
 export interface SpeechNetworkConfig {
-  /** Maximum number of retry attempts */
-  maxRetries?: number;
-  /** Base retry delay in milliseconds */
-  baseRetryDelay?: number;
-  /** Maximum retry delay in milliseconds */
-  maxRetryDelay?: number;
   /** Connection timeout in milliseconds */
   connectionTimeout?: number;
   /** Graceful close timeout in milliseconds */
@@ -515,12 +509,10 @@ export interface CircuitBreakerConfig {
 export interface SpeechConnectionConfig {
   /** Maximum concurrent connections */
   maxConnections?: number;
-  /** Connection timeout in milliseconds */
-  connectionTimeout?: number;
   /** Circuit breaker configuration */
   circuitBreaker?: CircuitBreakerConfig;
-  /** Enable connection pooling for performance */
-  poolingEnabled?: boolean;
+  /** When the connection limit is reached, queue further requests instead of throwing. */
+  queueWhenSaturated?: boolean;
 }
 
 /**

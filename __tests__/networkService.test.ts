@@ -133,7 +133,6 @@ describe("Network Service Implementation", () => {
     // Create network service instance
     networkService = new NetworkService(mockStorageService, {
       enableDebugLogging: false,
-      maxRetries: 1, // Reduce retries for faster tests
       connectionTimeout: 1000, // Shorter timeout for tests
       gracefulCloseTimeout: 50, // Very short graceful close for fast test cleanup
     });
@@ -166,10 +165,8 @@ describe("Network Service Implementation", () => {
 
     it("should initialize with custom configuration", () => {
       const config = {
-        maxRetries: 5,
-        baseRetryDelay: 2000,
-        maxRetryDelay: 20000,
         connectionTimeout: 10000,
+        gracefulCloseTimeout: 5000,
         enableDebugLogging: true,
       };
 
@@ -317,9 +314,13 @@ describe("Network Service Implementation", () => {
       // Wait for WebSocket constructor to be called
       await new Promise((resolve) => setTimeout(resolve, 10));
 
-      // Verify WebSocket was created with correct URL pattern
+      // Verify WebSocket was created with correct URL pattern. The RN
+      // WebSocket constructor takes (url, protocols, options) — the latter
+      // two carry the Edge-spoofing headers, so match all three.
       expect(global.WebSocket).toHaveBeenCalledWith(
         expect.stringContaining("wss://speech.platform.bing.com"),
+        undefined,
+        expect.objectContaining({ headers: expect.any(Object) }),
       );
     });
 
@@ -335,7 +336,6 @@ describe("Network Service Implementation", () => {
 
       const service = new NetworkService(mockStorageService, {
         connectionTimeout: 100, // Very short timeout
-        maxRetries: 0, // Disable retries to avoid exponential backoff delays
       });
 
       await expect(
@@ -911,7 +911,6 @@ describe("Network Service Implementation", () => {
     it("should handle synthesis timeout properly", async () => {
       const timeoutService = new NetworkService(mockStorageService, {
         enableDebugLogging: false,
-        maxRetries: 0, // No retries to simplify test
         connectionTimeout: 1000,
         gracefulCloseTimeout: 50,
       });

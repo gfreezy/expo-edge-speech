@@ -269,7 +269,7 @@ Handles resource limits and connection pooling:
 
 **Key Features:**
 - **Connection Limits**: Configurable maximum concurrent connections
-- **Pooling Strategy**: Optional connection reuse for improved performance
+- **Saturation Behavior**: Queue overflow requests or fail fast
 - **Resource Cleanup**: Automatic connection lifecycle management
 - **App State Integration**: Proper handling during app backgrounding
 
@@ -278,8 +278,7 @@ Handles resource limits and connection pooling:
 configure({
   connection: {
     maxConnections: 5,           // Maximum concurrent connections
-    poolingEnabled: true,        // Enable connection reuse
-    connectionTimeout: 10000,    // Connection establishment timeout
+    queueWhenSaturated: true,    // Queue requests when at maxConnections
     circuitBreaker: {
       failureThreshold: 5,       // Failures before opening circuit
       recoveryTimeout: 30000,    // Time before testing recovery
@@ -510,12 +509,11 @@ export function useSpeech() {
 configure({
   network: {
     enableDebugLogging: false,  // Disable in production
-    maxRetries: 3,
     connectionTimeout: 8000
   },
   connection: {
     maxConnections: 5,
-    poolingEnabled: true,
+    queueWhenSaturated: true,
     circuitBreaker: {
       failureThreshold: 5,
       recoveryTimeout: 30000,

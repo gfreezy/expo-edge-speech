@@ -20,7 +20,6 @@ describe("NetworkService response path handling", () => {
 
   beforeEach(() => {
     const config: SpeechNetworkConfig = {
-      maxRetries: 2,
       connectionTimeout: 5000,
       enableDebugLogging: true,
     };

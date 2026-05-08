@@ -715,12 +715,11 @@ import { Speech, SpeechAPIConfig } from 'expo-edge-speech';
 // Basic configuration
 const config: SpeechAPIConfig = {
   network: {
-    maxRetries: 3,
     connectionTimeout: 8000
   },
   connection: {
     maxConnections: 5,
-    poolingEnabled: true
+    queueWhenSaturated: true
   }
 };
 
@@ -746,9 +745,6 @@ Configuration interface for the network service that handles Edge TTS communicat
 
 ```typescript
 interface SpeechNetworkConfig {
-  maxRetries?: number;
-  baseRetryDelay?: number;
-  maxRetryDelay?: number;
   connectionTimeout?: number;
   gracefulCloseTimeout?: number;
   enableDebugLogging?: boolean;
@@ -756,21 +752,6 @@ interface SpeechNetworkConfig {
 ```
 
 #### Properties
-
-**`maxRetries?: number`**
-- Maximum number of retry attempts for failed requests
-- Default: 3
-- Range: 0-10 (higher values may delay error reporting)
-
-**`baseRetryDelay?: number`**
-- Initial retry delay in milliseconds
-- Default: 1000 (1 second)
-- Exponential backoff starts from this value
-
-**`maxRetryDelay?: number`**
-- Maximum retry delay in milliseconds
-- Default: 10000 (10 seconds)
-- Caps exponential backoff growth
 
 **`connectionTimeout?: number`**
 - Connection establishment timeout in milliseconds
@@ -865,8 +846,7 @@ Configuration interface for the connection manager that coordinates synthesis op
 ```typescript
 interface SpeechConnectionConfig {
   maxConnections?: number;
-  connectionTimeout?: number;
-  poolingEnabled?: boolean;
+  queueWhenSaturated?: boolean;
   circuitBreaker?: {
     failureThreshold?: number;
     recoveryTimeout?: number;
@@ -882,15 +862,10 @@ interface SpeechConnectionConfig {
 - Default: 5
 - Higher values may improve throughput but increase resource usage
 
-**`connectionTimeout?: number`**
-- Connection timeout in milliseconds
-- Default: 10000 (10 seconds)
-- Should match network configuration timeout
-
-**`poolingEnabled?: boolean`**
-- Enable connection pooling for improved performance
-- Default: false
-- See [Configuration Guide](./configuration.md) for detailed explanation
+**`queueWhenSaturated?: boolean`**
+- When the connection limit is reached, queue further requests instead of throwing
+- Default: false (excess requests fail fast with `ConnectionLimitExceeded`)
+- Connections themselves are never reused — every `speak()` call opens a fresh WebSocket; this flag only controls overflow behavior
 
 **`circuitBreaker`**
 - Circuit breaker configuration for fault tolerance
@@ -1018,7 +993,7 @@ const options = {
 const config: SpeechAPIConfig = {
   connection: {
     maxConnections: 5,
-    poolingEnabled: true
+    queueWhenSaturated: true
   },
   audio: {
     platformConfig: {
@@ -1082,11 +1057,9 @@ class VoiceCache {
 const optimizedConfig: SpeechAPIConfig = {
   connection: {
     maxConnections: 3,
-    poolingEnabled: true,
-    connectionTimeout: 8000
+    queueWhenSaturated: true
   },
   network: {
-    maxRetries: 2,
     connectionTimeout: 8000
   },
   voice: {
@@ -1114,7 +1087,7 @@ const speech = new Speech();
 const speech = new Speech({
   connection: {
     maxConnections: 5,
-    poolingEnabled: true
+    queueWhenSaturated: true
   },
   audio: {
     loadingTimeout: 5000,
@@ -1213,7 +1186,7 @@ const config: SpeechAPIConfig = {
   },
   connection: {
     maxConnections: 3,
-    poolingEnabled: true
+    queueWhenSaturated: true
   }
 };
 

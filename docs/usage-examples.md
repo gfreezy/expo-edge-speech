@@ -509,13 +509,12 @@ import { configure } from 'expo-edge-speech';
 
 configure({
   network: {
-    maxRetries: 3,
     connectionTimeout: 8000,
     enableDebugLogging: false  // Disable in production
   },
   connection: {
     maxConnections: 5,
-    poolingEnabled: true,
+    queueWhenSaturated: true,
     circuitBreaker: {
       failureThreshold: 3,
       recoveryTimeout: 15000

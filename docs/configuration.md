@@ -43,7 +43,6 @@ import { configure, speak } from 'expo-edge-speech';
 // Configure once before any speech operations
 configure({
   network: {
-    maxRetries: 3,
     connectionTimeout: 8000
   },
   audio: {
@@ -66,15 +65,12 @@ import { configure } from 'expo-edge-speech';
 
 configure({
   network: {
-    maxRetries: 3,
-    baseRetryDelay: 1000,
     connectionTimeout: 8000,
     enableDebugLogging: false
   },
   connection: {
     maxConnections: 3,        // Conservative for mobile
-    poolingEnabled: true,
-    connectionTimeout: 8000,
+    queueWhenSaturated: true,
     circuitBreaker: {
       failureThreshold: 3,
       recoveryTimeout: 15000,
@@ -110,16 +106,12 @@ Maximum throughput for applications requiring fast synthesis:
 ```typescript
 configure({
   network: {
-    maxRetries: 2,
-    baseRetryDelay: 500,
-    maxRetryDelay: 3000,
     connectionTimeout: 5000,     // Faster timeout
     gracefulCloseTimeout: 2000
   },
   connection: {
     maxConnections: 8,           // More concurrent connections
-    poolingEnabled: true,
-    connectionTimeout: 5000,
+    queueWhenSaturated: true,
     circuitBreaker: {
       failureThreshold: 10,      // More tolerant
       recoveryTimeout: 30000,
@@ -146,13 +138,11 @@ Optimized for development with detailed logging and fast failure detection:
 configure({
   network: {
     enableDebugLogging: true,   // Detailed network logs
-    maxRetries: 1,              // Fail fast for debugging
-    baseRetryDelay: 200,
     connectionTimeout: 3000
   },
   connection: {
     maxConnections: 2,          // Simpler connection management
-    poolingEnabled: false,      // Easier to track individual requests
+    queueWhenSaturated: false,      // Easier to track individual requests
     circuitBreaker: {
       failureThreshold: 1,      // Immediate circuit breaker
       recoveryTimeout: 5000,
@@ -223,8 +213,6 @@ import { configure } from 'expo-edge-speech';
 
 configure({
   network: {
-    maxRetries: 3,              // Retry failed requests 3 times
-    baseRetryDelay: 1000,       // Start with 1s delay between retries
     connectionTimeout: 8000,    // 8s timeout for connections
     enableDebugLogging: __DEV__ // Debug logging in development only
   }
@@ -251,7 +239,7 @@ configure({
 configure({
   connection: {
     maxConnections: 5,          // Limit concurrent connections
-    poolingEnabled: true,       // Enable connection pooling for better performance
+    queueWhenSaturated: true,   // Queue requests instead of throwing when saturated
     circuitBreaker: {
       failureThreshold: 3,      // Open circuit after 3 failures
       recoveryTimeout: 15000,   // Test recovery after 15 seconds
@@ -289,12 +277,11 @@ import { configure, speak } from 'expo-edge-speech';
 // Configure for better performance and reliability
 configure({
   network: {
-    maxRetries: 3,
     connectionTimeout: 10000
   },
   connection: {
     maxConnections: 8,
-    poolingEnabled: true        // Enable pooling for better throughput
+    queueWhenSaturated: true        // Queue overflow requests for better throughput
   },
   audio: {
     loadingTimeout: 8000,
@@ -322,12 +309,10 @@ for (const lesson of lessons) {
 ```typescript
 configure({
   network: {
-    maxRetries: 5,              // More retries for better reliability
-    baseRetryDelay: 1500
   },
   connection: {
     maxConnections: 6,
-    poolingEnabled: true
+    queueWhenSaturated: true
   },
   voice: {
     cacheEnabled: true,         // Cache voice lists for offline access
@@ -364,12 +349,11 @@ await speakInLanguage('Hola mundo', 'es-ES');
 ```typescript
 configure({
   network: {
-    maxRetries: 2,              // Fewer retries for faster failures
     connectionTimeout: 6000     // Shorter timeout for faster detection
   },
   connection: {
     maxConnections: 12,         // Higher connection limit
-    poolingEnabled: true,       // Essential for high volume
+    queueWhenSaturated: true,       // Essential for high volume
     circuitBreaker: {
       failureThreshold: 10,     // More tolerant of individual failures
       recoveryTimeout: 30000
@@ -402,13 +386,11 @@ const processBatch = async (texts: string[]) => {
 ```typescript
 configure({
   network: {
-    maxRetries: 5,              // More retries for unreliable networks
-    baseRetryDelay: 2000,       // Longer delays between retries
     connectionTimeout: 15000    // Longer timeout for slow networks
   },
   connection: {
     maxConnections: 3,          // Fewer concurrent connections
-    poolingEnabled: false,      // Simpler connection management
+    queueWhenSaturated: false,      // Simpler connection management
     circuitBreaker: {
       failureThreshold: 2,      // Fail fast for unreliable networks
       recoveryTimeout: 60000,   // Longer recovery time
@@ -448,7 +430,7 @@ const speakWithRetry = async (text: string, maxAttempts = 3) => {
 configure({
   connection: {
     maxConnections: 2,          // Limit concurrent connections
-    poolingEnabled: false       // Disable pooling to reduce memory
+    queueWhenSaturated: false       // Fail fast on saturation, no queueing
   },
   audio: {
     loadingTimeout: 8000        // Longer timeout for slower devices
@@ -465,7 +447,7 @@ configure({
 configure({
   connection: {
     maxConnections: 10,         // Higher connection limit
-    poolingEnabled: true        // Enable pooling for efficiency
+    queueWhenSaturated: true        // Queue overflow requests for efficiency
   },
   audio: {
     loadingTimeout: 3000        // Faster timeout for responsive devices
@@ -484,8 +466,6 @@ configure({
 configure({
   network: {
     connectionTimeout: 20000,   // Longer timeout for slow networks
-    maxRetries: 5,              // More retries
-    baseRetryDelay: 3000        // Longer delays between retries
   },
   connection: {
     maxConnections: 2,          // Fewer concurrent connections
@@ -502,8 +482,6 @@ configure({
 configure({
   network: {
     connectionTimeout: 5000,    // Shorter timeout for fast networks
-    maxRetries: 2,              // Fewer retries needed
-    baseRetryDelay: 500         // Shorter delays
   },
   connection: {
     maxConnections: 8,          // More concurrent connections
@@ -522,11 +500,10 @@ configure({
 configure({
   connection: {
     maxConnections: 1,          // Single connection to reduce radio usage
-    poolingEnabled: false       // Simpler connection management
+    queueWhenSaturated: false       // Simpler connection management
   },
   network: {
     connectionTimeout: 12000,   // Reasonable timeout
-    maxRetries: 2               // Limit retries to save battery
   },
   audio: {
     platformConfig: {
@@ -723,7 +700,7 @@ configure(getConfigForEnvironment());
 ```typescript
 // Start with basic configuration
 configure({
-  network: { maxRetries: 3 }
+  network: { connectionTimeout: 8000 }
 });
 
 // Add more configuration as needed
@@ -731,7 +708,7 @@ if (isHighVolumeApp) {
   configure({
     connection: { 
       maxConnections: 8,
-      poolingEnabled: true 
+      queueWhenSaturated: true 
     }
   });
 }
@@ -775,7 +752,7 @@ const testConfiguration = async () => {
 // Option 1: Enable connection pooling
 configure({
   connection: {
-    poolingEnabled: true,
+    queueWhenSaturated: true,
     maxConnections: 8
   }
 });
@@ -846,7 +823,7 @@ const speakWithBackoff = async (text: string, retryCount = 0) => {
 // Configure for lower memory usage
 configure({
   connection: {
-    poolingEnabled: false,      // Disable pooling
+    queueWhenSaturated: false,      // Fail fast on saturation
     maxConnections: 2          // Reduce connections
   },
   storage: {
@@ -870,11 +847,10 @@ setInterval(() => {
 configure({
   network: {
     connectionTimeout: 5000,    // Shorter timeout
-    maxRetries: 2              // Fewer retries
   },
   connection: {
     maxConnections: 6,         // More concurrent connections
-    poolingEnabled: true       // Enable pooling for reuse
+    queueWhenSaturated: true       // Queue overflow requests instead of throwing
   }
 });
 

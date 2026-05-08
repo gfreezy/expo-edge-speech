@@ -5,7 +5,6 @@
  */
 
 import { ConnectionManager } from "../src/core/connectionManager";
-import { StateManager, ApplicationState } from "../src/core/state";
 import { NetworkService } from "../src/services/networkService";
 import { AudioService, AudioPlaybackState } from "../src/services/audioService";
 import { StorageService } from "../src/services/storageService";
@@ -20,17 +19,6 @@ jest.mock("react-native", () => ({
     }),
   },
 }));
-
-// Mock services for comprehensive testing
-const createMockStateManager = () =>
-  ({
-    getState: jest.fn().mockReturnValue(ApplicationState.Ready),
-    addStateChangeListener: jest.fn(),
-    removeStateChangeListener: jest.fn(),
-    getConfiguration: jest.fn(),
-    updateConfiguration: jest.fn(),
-    setState: jest.fn(),
-  }) as unknown as StateManager;
 
 const createMockNetworkService = () =>
   ({
@@ -73,7 +61,6 @@ const createMockStorageService = () =>
 
 describe("ConnectionManager", () => {
   let connectionManager: ConnectionManager;
-  let mockStateManager: StateManager;
   let mockNetworkService: NetworkService;
   let mockAudioService: AudioService;
   let mockStorageService: StorageService;
@@ -86,7 +73,6 @@ describe("ConnectionManager", () => {
     jest.clearAllMocks();
 
     // Create fresh mocks for each test
-    mockStateManager = createMockStateManager();
     mockNetworkService = createMockNetworkService();
     mockAudioService = createMockAudioService();
     mockStorageService = createMockStorageService();
@@ -109,7 +95,6 @@ describe("ConnectionManager", () => {
     );
 
     connectionManager = new ConnectionManager(
-      mockStateManager,
       mockNetworkService,
       mockAudioService,
       mockStorageService,
@@ -149,8 +134,7 @@ describe("ConnectionManager", () => {
     test("should initialize with custom configuration", () => {
       const customConfig = {
         maxConnections: 3,
-        connectionTimeout: 10000,
-        poolingEnabled: true,
+        queueWhenSaturated: true,
         circuitBreaker: {
           failureThreshold: 3,
           recoveryTimeout: 15000,
@@ -159,7 +143,6 @@ describe("ConnectionManager", () => {
       };
 
       const customConnectionManager = new ConnectionManager(
-        mockStateManager,
         mockNetworkService,
         mockAudioService,
         mockStorageService,
@@ -173,7 +156,6 @@ describe("ConnectionManager", () => {
     });
 
     test("should setup event handlers during initialization", () => {
-      expect(mockStateManager.addStateChangeListener).toHaveBeenCalled();
       expect(AppState.addEventListener).toHaveBeenCalledWith(
         "change",
         expect.any(Function),
@@ -311,11 +293,10 @@ describe("ConnectionManager", () => {
 
     test("should handle pooled connections with queuing (pooling enabled)", async () => {
       const pooledConnectionManager = new ConnectionManager(
-        mockStateManager,
         mockNetworkService,
         mockAudioService,
         mockStorageService,
-        { poolingEnabled: true, maxConnections: 1 },
+        { queueWhenSaturated: true, maxConnections: 1 },
       );
 
       try {
@@ -380,7 +361,6 @@ describe("ConnectionManager", () => {
     test("should open circuit breaker after repeated failures", async () => {
       // Configure circuit breaker with low failure threshold for testing
       const testConnectionManager = new ConnectionManager(
-        mockStateManager,
         mockNetworkService,
         mockAudioService,
         mockStorageService,
@@ -442,11 +422,10 @@ describe("ConnectionManager", () => {
 
   describe("Error Handling and Recovery", () => {
     test("should handle retryable errors with exponential backoff", async () => {
-      // Mock network service to fail then succeed
+      const retryableError = new Error("WebSocket error");
+      retryableError.name = "WebSocketError";
       (mockNetworkService.synthesizeText as jest.Mock)
-        .mockRejectedValueOnce(
-          Object.assign(new Error("Network error"), { code: "NetworkError" }),
-        )
+        .mockRejectedValueOnce(retryableError)
         .mockResolvedValueOnce({
           audioChunks: [new Uint8Array([1, 2, 3, 4])],
           boundaries: [{ charIndex: 0, charLength: 4, audioOffset: 0 }],
@@ -481,9 +460,10 @@ describe("ConnectionManager", () => {
     });
 
     test("should stop retrying after max attempts", async () => {
-      // Mock network service to always fail with retryable error
+      const wsError = new Error("WebSocket failed");
+      wsError.name = "WebSocketError";
       (mockNetworkService.synthesizeText as jest.Mock).mockRejectedValue(
-        Object.assign(new Error("Network timeout"), { code: "TimeoutError" }),
+        wsError,
       );
 
       await expect(
@@ -545,7 +525,6 @@ describe("ConnectionManager", () => {
 
       // Create new manager to test subscription setup
       const testManager = new ConnectionManager(
-        mockStateManager,
         mockNetworkService,
         mockAudioService,
         mockStorageService,
@@ -670,7 +649,6 @@ describe("ConnectionManager", () => {
     test("should handle concurrent session operations", async () => {
       // Create connection manager with higher limit for concurrent test
       const concurrentManager = new ConnectionManager(
-        mockStateManager,
         mockNetworkService,
         mockAudioService,
         mockStorageService,
@@ -700,11 +678,10 @@ describe("ConnectionManager", () => {
 
     test("should handle queue rejection on shutdown", async () => {
       const queuedManager = new ConnectionManager(
-        mockStateManager,
         mockNetworkService,
         mockAudioService,
         mockStorageService,
-        { poolingEnabled: true, maxConnections: 1 },
+        { queueWhenSaturated: true, maxConnections: 1 },
       );
 
       try {

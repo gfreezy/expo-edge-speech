@@ -1,7 +1,6 @@
 /**
  * Coordinates WebSocket connections via Network Service with audio playback via Audio Service.
- * Handles connection pooling using Storage Service, processes audio data streams,
- * manages concurrent connections using State Management, and implements circuit breaker pattern.
+ * Implements concurrency limits, optional saturation queueing, and the circuit breaker.
  */
 
 import { ConnectionState } from "../types";
@@ -15,12 +14,13 @@ import type {
 
 import { AppState, NativeEventSubscription } from "react-native";
 
-import { StateManager } from "./state";
 import { NetworkService } from "../services/networkService";
 import { AudioService } from "../services/audioService";
 import { StorageService } from "../services/storageService";
 
 import { CONNECTION_LIFECYCLE } from "../constants";
+
+const RETRYABLE_ERROR_NAMES = ["WebSocketError"];
 
 // =============================================================================
 // Connection Manager Configuration and Types
@@ -70,21 +70,7 @@ interface QueuedConnection {
 // Connection Manager Implementation
 // =============================================================================
 
-/**
- * Connection Manager - coordinates all services for speech synthesis
- *
- * Responsibilities:
- * - Coordinate WebSocket connections via Network Service with audio playback via Audio Service
- * - Handle connection pooling using Storage Service connection management
- * - Implement connection lifecycle management using all service capabilities
- * - Process audio data streams coordinating Network Service, Storage Service, and Audio Utilities
- * - Handle connection errors and recovery using Network Service error handling
- * - Manage concurrent connections using State Management
- * - Coordinate real-time streaming between all services
- * - Implement circuit breaker pattern using complete error types and constants
- */
 export class ConnectionManager {
-  private stateManager: StateManager;
   private networkService: NetworkService;
   private audioService: AudioService;
   private storageService: StorageService;
@@ -94,7 +80,6 @@ export class ConnectionManager {
   private activeConnections: Map<string, StreamingCoordinator>;
   private activeSessions: Map<string, string>; // sessionId -> connectionId mapping
   private connectionQueue: QueuedConnection[];
-  private globalConnectionState: ConnectionState = ConnectionState.Disconnected;
   private isShuttingDown = false;
 
   // Circuit breaker tracking
@@ -107,13 +92,11 @@ export class ConnectionManager {
   private appStateHandlerAdded = false;
 
   constructor(
-    stateManager: StateManager,
     networkService: NetworkService,
     audioService: AudioService,
     storageService: StorageService,
     config?: Partial<SpeechConnectionConfig>,
   ) {
-    this.stateManager = stateManager;
     this.networkService = networkService;
     this.audioService = audioService;
     this.storageService = storageService;
@@ -121,13 +104,12 @@ export class ConnectionManager {
     // Initialize configuration with defaults
     this.config = {
       maxConnections: CONNECTION_LIFECYCLE.POOL_MANAGEMENT.MAX_POOL_SIZE,
-      connectionTimeout: CONNECTION_LIFECYCLE.TIMEOUTS.CONNECTION_ESTABLISHMENT,
       circuitBreaker: {
         failureThreshold: 5,
         recoveryTimeout: 30000, // 30 seconds
         testRequestLimit: 3,
       } as Required<CircuitBreakerConfig>,
-      poolingEnabled: false, // Disabled by default to enforce connection limits
+      queueWhenSaturated: false,
       ...config,
     };
 
@@ -165,7 +147,7 @@ export class ConnectionManager {
     // Check connection limits
     const maxConnections = this.config.maxConnections;
     if (this.activeConnections.size >= maxConnections) {
-      if (this.config.poolingEnabled) {
+      if (this.config.queueWhenSaturated) {
         // Queue the request
         return new Promise((resolve, reject) => {
           this.connectionQueue.push({
@@ -331,7 +313,6 @@ export class ConnectionManager {
 
     // Clear all connections on shutdown
     this.activeConnections.clear();
-    this.globalConnectionState = ConnectionState.Disconnected;
   }
 
   /**
@@ -382,26 +363,13 @@ export class ConnectionManager {
     this.activeSessions.set(localSessionId, connectionId);
 
     try {
-      // Update state
       coordinator.state = ConnectionState.Connecting;
-      this.globalConnectionState = ConnectionState.Connecting;
-      // State coordination happens through service integration
 
-      // Initialize storage for this connection
       this.storageService.createConnectionBuffer(connectionId);
 
-      // Setup audio streaming coordination
-      await this.setupAudioStreamingCoordination(coordinator);
-
-      // Establish connection via Network Service
-      await this.establishNetworkConnection(
-        connectionId,
-        ssml,
-        options, // options already of type SpeechOptions & { clientSessionId: string; connectionId: string }
-      );
+      await this.establishNetworkConnection(connectionId, ssml, options);
 
       coordinator.state = ConnectionState.Connected;
-      this.globalConnectionState = ConnectionState.Connected;
 
       return {
         sessionId: localSessionId,
@@ -422,31 +390,6 @@ export class ConnectionManager {
         throw handlerError;
       }
     }
-  }
-
-  /**
-   * Setup audio streaming coordination between services
-   */
-  private async setupAudioStreamingCoordination(
-    coordinator: StreamingCoordinator,
-  ): Promise<void> {
-    // Audio service will be configured when playback starts
-    // Store audio configuration in coordinator
-    (coordinator as any).audioConfig = {
-      connectionId: coordinator.connectionId,
-      options: coordinator.options,
-    };
-
-    // Setup audio data processing pipeline
-    this.setupAudioDataPipeline(coordinator);
-  }
-
-  /**
-   * Setup audio data processing pipeline
-   */
-  private setupAudioDataPipeline(coordinator: StreamingCoordinator): void {
-    // Audio data will flow: Network Service → Storage Service → Audio Service
-    // This pipeline is coordinated through handleAudioData method
   }
 
   /**
@@ -506,13 +449,7 @@ export class ConnectionManager {
    * Cleanup connection resources
    */
   private async cleanupConnection(connectionId: string): Promise<void> {
-    // Remove from active connections
     this.activeConnections.delete(connectionId);
-
-    // Update state if no more connections
-    if (this.activeConnections.size === 0) {
-      this.globalConnectionState = ConnectionState.Disconnected;
-    }
 
     // Process queued connections if space available
     await this.processConnectionQueue();
@@ -523,120 +460,46 @@ export class ConnectionManager {
   // =============================================================================
 
   /**
-   * Handle incoming audio data from Network Service
-   * Coordinates data flow between Network Service, Storage Service, and Audio Service
-   */
-  private async handleAudioData(
-    connectionId: string,
-    audioData: Uint8Array,
-  ): Promise<void> {
-    const coordinator = this.activeConnections.get(connectionId);
-    if (!coordinator) {
-      console.warn(
-        `Received audio data for unknown connection: ${connectionId}`,
-      );
-      return;
-    }
-
-    try {
-      // Update coordinator tracking
-      coordinator.audioChunks.push(audioData);
-      coordinator.totalAudioSize += audioData.length;
-
-      // Store audio data in StorageService.
-      // The actual mechanism for this depends on StorageService's API.
-      // For now, we assume StorageService is aware of the coordinator.audioChunks
-      // or there's a direct method like:
-      // this.storageService.addAudioChunk(connectionId, audioData);
-
-      // DO NOT stream to Audio Service for playback on every chunk.
-      // Playback will be triggered once all chunks are received.
-      // await this.streamAudioToService(connectionId);
-    } catch (error) {
-      console.error(
-        `Error handling audio data for connection ${connectionId}:`,
-        error,
-      );
-
-      // For storage errors, just trigger the error callback but don't terminate the connection
-      // This allows the connection to continue processing other audio chunks
-      if (coordinator.options.onError) {
-        coordinator.options.onError(error as Error);
-      }
-    }
-  }
-
-  /**
-   * Store audio data (new helper method)
-   */
-  private async storeAudioData(
-    connectionId: string,
-    audioData: Uint8Array,
-  ): Promise<void> {
-    const coordinator = this.activeConnections.get(connectionId);
-    if (!coordinator) {
-      console.warn(
-        `Attempted to store audio data for unknown connection: ${connectionId}`,
-      );
-      return;
-    }
-
-    try {
-      // Update coordinator tracking
-      coordinator.audioChunks.push(audioData);
-      coordinator.totalAudioSize += audioData.length;
-
-      // Store audio data in StorageService for audio playback
-      await this.storageService.addAudioChunk(connectionId, audioData);
-    } catch (error) {
-      console.error(
-        `Error storing audio data for connection ${connectionId}:`,
-        error,
-      );
-      if (coordinator.options.onError) {
-        coordinator.options.onError(error as Error);
-      }
-    }
-  }
-
-  /**
    * Stream audio data to Audio Service
    */
   private async streamAudioToService(connectionId: string): Promise<void> {
     const coordinator = this.activeConnections.get(connectionId);
     if (!coordinator) return;
 
-    // In batch processing mode, we use AudioService.speak() which supports callbacks
-    // Wrap the user's onDone callback to include connection cleanup
+    // In batch processing mode, we use AudioService.speak() which supports callbacks.
+    // We MUST finish terminating this connection (close WS, drop buffer, free
+    // pool slot) BEFORE notifying the user, otherwise the user fires the next
+    // speak() while this connection is still tearing down. The next speak
+    // creates a fresh buffer keyed by a new connectionId, and any final binary
+    // frame still in flight on the old socket lands in StorageService AFTER
+    // this connection's buffer has been deleted -> "No buffer found" throw.
     const wrappedOptions = {
       ...coordinator.options,
-      onDone: () => {
-        // Call user's callback first
-        if (coordinator.options.onDone) {
-          coordinator.options.onDone();
-        }
-
-        // Then clean up the connection to enable pooling
-        this.terminateConnection(connectionId).catch((error) => {
+      onDone: async () => {
+        try {
+          await this.terminateConnection(connectionId);
+        } catch (error) {
           console.error(
             `[ConnectionManager] Failed to cleanup connection ${connectionId}:`,
             error,
           );
-        });
-      },
-      onError: (error: Error) => {
-        // Call user's callback first
-        if (coordinator.options.onError) {
-          coordinator.options.onError(error);
         }
-
-        // Clean up connection on error too
-        this.terminateConnection(connectionId).catch((cleanupError) => {
+        if (coordinator.options.onDone) {
+          coordinator.options.onDone();
+        }
+      },
+      onError: async (error: Error) => {
+        try {
+          await this.terminateConnection(connectionId);
+        } catch (cleanupError) {
           console.error(
             `[ConnectionManager] Failed to cleanup connection ${connectionId} after error:`,
             cleanupError,
           );
-        });
+        }
+        if (coordinator.options.onError) {
+          coordinator.options.onError(error);
+        }
       },
     };
 
@@ -735,13 +598,9 @@ export class ConnectionManager {
     }
   }
 
-  /**
-   * Determine if connection should be retried based on error type
-   */
+  /** Matches Error.name because thrown errors set `name`, not `code`. */
   private shouldRetryConnection(error: SpeechError): boolean {
-    const retryableErrors = ["NetworkError", "TimeoutError", "WebSocketError"];
-
-    return retryableErrors.includes(error.code?.toString() || "");
+    return RETRYABLE_ERROR_NAMES.includes(error.name || "");
   }
 
   /**
@@ -788,9 +647,7 @@ export class ConnectionManager {
         },
       );
 
-      // Update coordinator state on success
       coordinator.state = ConnectionState.Connected;
-      this.globalConnectionState = ConnectionState.Connected;
     } catch (error) {
       // Mark coordinator as failed and handle the error recursively
       coordinator.state = ConnectionState.Error;
@@ -903,46 +760,9 @@ export class ConnectionManager {
   // =============================================================================
 
   /**
-   * Update global connection state based on individual connection states
-   */
-  private updateGlobalConnectionState(): void {
-    const states = Array.from(this.activeConnections.values()).map(
-      (c) => c.state,
-    );
-
-    // Connection state updates are handled by StateManager through service events
-    // This method tracks internal state but doesn't update external state
-    let globalState: ConnectionState;
-
-    if (states.length === 0) {
-      globalState = ConnectionState.Disconnected;
-    } else if (states.some((s) => s === ConnectionState.Error)) {
-      globalState = ConnectionState.Error;
-    } else if (states.some((s) => s === ConnectionState.Synthesizing)) {
-      globalState = ConnectionState.Synthesizing;
-    } else if (states.every((s) => s === ConnectionState.Connected)) {
-      globalState = ConnectionState.Connected;
-    } else {
-      globalState = ConnectionState.Connecting;
-    }
-
-    // Store global state for internal tracking
-    this.globalConnectionState = globalState;
-  }
-
-  /**
    * Setup event handlers for service coordination
    */
   private setupEventHandlers(): void {
-    // Setup state change listener for service coordination
-    this.stateManager.addStateChangeListener((event) => {
-      // Handle state changes for connection management coordination
-      if (event.type === "connection" || event.type === "application") {
-        // Update global connection state based on state manager events
-        // This enables proper service coordination
-      }
-    });
-
     // Setup cleanup on app state changes (React Native/Expo compatible)
     // Following React Native AppState documentation patterns
     if (AppState && !this.appStateHandlerAdded) {
@@ -993,17 +813,5 @@ export class ConnectionManager {
     error.name = name;
     (error as any).code = code;
     return error;
-  }
-
-  /**
-   * Convert Uint8Array to base64 string
-   */
-  private uint8ArrayToBase64(uint8Array: Uint8Array): string {
-    let binary = "";
-    const len = uint8Array.byteLength;
-    for (let i = 0; i < len; i++) {
-      binary += String.fromCharCode(uint8Array[i]);
-    }
-    return btoa(binary);
   }
 }
